@@ -2,12 +2,28 @@
 name = "hsip-net"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "HSIP networking (UDP control plane: HELLO + CONSENT)"
 
 [dependencies]
-hsip-core = { path = "../hsip-core" }
-ed25519-dalek = { version = "2", features = ["rand_core"] }
-rand = "0.8"
+anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-base64 = "0.22"
+
+# crypto for signing (already used by HELLO etc.)
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+
+# reputation + keystore deps (for listener-side policy)
+hsip-core = { path = "../hsip-core" }
+hsip-reputation = { path = "../hsip-reputation" }
+
+# env helpers
+dirs = "5"
+
+# rate limiting and encryption
+rand = "0.8"
 hex = "0.4"
+chacha20poly1305 = "0.10"
+
+# NEW: used by hello.rs
+base64 = "0.22"
