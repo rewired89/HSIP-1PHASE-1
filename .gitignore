@@ -1,0 +1,19 @@
+# Rust
+/target
+**/*.rs.bk
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+*.swp
+
+# Local artifacts (don’t leak)
+*.log
+*.json
+reputation.log
+req.json
+resp.json
+
+# If you ever store keys/config locally under the repo, ignore them:
+keystore/
+keys/

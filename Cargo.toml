@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "crates/hsip-core",
+    "crates/hsip-net",
+    "crates/hsip-reputation",
+    "crates/hsip-cli",
+    "crates/hsip-examples",
+]
+resolver = "2"
