@@ -1,9 +1,10 @@
-use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::fs::OpenOptions;
+use std::io::{BufRead, BufReader, Write};
+
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use fs2::FileExt; // for file locking (cross-platform)
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -28,26 +29,26 @@ pub enum DecisionType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Evidence {
-    pub kind: String,   // e.g., "pcap_hash"
-    pub value: String,  // e.g., "sha256:..."
+    pub kind: String,  // e.g., "pcap_hash"
+    pub value: String, // e.g., "sha256:..."
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
     pub version: u32,
-    pub event_id: String,        // uuid
-    pub ts: String,              // timestamp
+    pub event_id: String,  // uuid
+    pub ts: String,        // timestamp
     pub actor_peer_id: String,
     pub subject_peer_id: String,
     pub decision_type: DecisionType,
-    pub severity: u8,            // 0..3
+    pub severity: u8,      // 0..3
     pub reason_code: String,
     pub reason_text: String,
     pub evidence: Vec<Evidence>,
     pub ttl: Option<String>,
     pub weight: i32,
-    pub prev_hash: String,       // sha256 hex of previous line
-    pub sig: String,             // hex of ed25519 signature
+    pub prev_hash: String, // sha256 hex of previous line
+    pub sig: String,       // hex of ed25519 signature
 }
 
 fn to_canonical_json<T: Serialize>(v: &T) -> anyhow::Result<Vec<u8>> {
@@ -71,26 +72,39 @@ pub struct Store {
 impl Store {
     pub fn open<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let p = path.as_ref();
-        if let Some(dir) = p.parent() { std::fs::create_dir_all(dir)?; }
+        if let Some(dir) = p.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
         if !p.exists() {
-            #[cfg(unix)] {
+            #[cfg(unix)]
+            {
                 use std::os::unix::fs::OpenOptionsExt;
-                OpenOptions::new().create(true).write(true).mode(0o600).open(p)?;
+                // Create if missing, append (never truncate), chmod 600
+                OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .mode(0o600)
+                    .open(p)?;
             }
-            #[cfg(not(unix))] {
-                OpenOptions::new().create(true).write(true).open(p)?;
+            #[cfg(not(unix))]
+            {
+                // Create if missing, append (never truncate)
+                OpenOptions::new().create(true).append(true).open(p)?;
             }
         }
         Ok(Self { path: p.to_path_buf() })
     }
 
+    #[allow(dead_code)]
     fn last_line_and_hash(&self) -> anyhow::Result<(Option<String>, String)> {
         let file = OpenOptions::new().read(true).open(&self.path)?;
         let mut reader = BufReader::new(file);
         let mut last = String::new();
         let mut buf = String::new();
         while reader.read_line(&mut buf)? > 0 {
-            if !buf.trim().is_empty() { last = buf.trim_end().to_string(); }
+            if !buf.trim().is_empty() {
+                last = buf.trim_end().to_string();
+            }
             buf.clear();
         }
         let prev_hash = if last.is_empty() {
@@ -104,23 +118,26 @@ impl Store {
     }
 
     fn weight_for(decision_type: &DecisionType, severity: u8) -> i32 {
-        fn by_sev(base: [i32; 4], s: u8) -> i32 { base[std::cmp::min(s as usize, 3)] }
+        fn by_sev(base: [i32; 4], s: u8) -> i32 {
+            base[std::cmp::min(s as usize, 3)]
+        }
         match decision_type {
-            DecisionType::TRUSTED       => by_sev([4,5,6,8], severity),
-            DecisionType::VERIFIED_ID   => by_sev([3,4,5,6], severity),
-            DecisionType::GOOD_BEHAVIOR => by_sev([1,2,3,4], severity),
+            DecisionType::TRUSTED => by_sev([4, 5, 6, 8], severity),
+            DecisionType::VERIFIED_ID => by_sev([3, 4, 5, 6], severity),
+            DecisionType::GOOD_BEHAVIOR => by_sev([1, 2, 3, 4], severity),
             DecisionType::NOTE | DecisionType::APPEAL => 0,
-            DecisionType::REVERSAL      => 0,
-            DecisionType::SPAM          => by_sev([-2,-4,-5,-6], severity),
-            DecisionType::MALFORMED     => by_sev([-1,-2,-3,-4], severity),
-            DecisionType::TIMEOUT       => by_sev([-1,-1,-2,-3], severity),
-            DecisionType::MISBEHAVIOR   => by_sev([-3,-5,-7,-9], severity),
-            DecisionType::REPLAY        => by_sev([-2,-3,-4,-5], severity),
-            DecisionType::INVALID_SIG   => by_sev([-4,-6,-8,-10], severity),
+            DecisionType::REVERSAL => 0,
+            DecisionType::SPAM => by_sev([-2, -4, -5, -6], severity),
+            DecisionType::MALFORMED => by_sev([-1, -2, -3, -4], severity),
+            DecisionType::TIMEOUT => by_sev([-1, -1, -2, -3], severity),
+            DecisionType::MISBEHAVIOR => by_sev([-3, -5, -7, -9], severity),
+            DecisionType::REPLAY => by_sev([-2, -3, -4, -5], severity),
+            DecisionType::INVALID_SIG => by_sev([-4, -6, -8, -10], severity),
         }
     }
 
-        // Append a new event atomically, with a single locked handle (Windows-safe)
+    /// Append a new event atomically, with a single locked handle (Windows-safe)
+    #[allow(clippy::too_many_arguments)]
     pub fn append(
         &self,
         signing_key: &SigningKey,
@@ -133,15 +150,15 @@ impl Store {
         evidence: Vec<Evidence>,
         ttl: Option<String>,
     ) -> anyhow::Result<Event> {
-        // Open once with read+append, then lock it before reading/writing.
+        // Single locked handle
         let mut file = OpenOptions::new()
             .create(true)
             .read(true)
             .append(true)
             .open(&self.path)?;
-        file.lock_exclusive()?; // exclusive lock for whole append txn
+        file.lock_exclusive()?;
 
-        // Read last line *from the same handle* (via a cloned handle) to compute prev_hash.
+        // Read last line to compute prev_hash.
         let mut last = String::new();
         {
             let mut reader = BufReader::new(file.try_clone()?);
@@ -184,10 +201,8 @@ impl Store {
         let signature: Signature = signing_key.sign(&bytes);
         event.sig = hex::encode(signature.to_bytes());
 
-        // Final line to append
+        // Append line
         let line = String::from_utf8(to_canonical_json(&event)?)? + "\n";
-
-        // Write using the already-locked handle
         file.write_all(line.as_bytes())?;
         file.sync_all()?;
         file.unlock()?;
@@ -201,13 +216,17 @@ impl Store {
         let mut count = 0usize;
         for line in reader.lines() {
             let l = line?;
-            if l.trim().is_empty() { continue; }
+            if l.trim().is_empty() {
+                continue;
+            }
             let mut hasher = Sha256::new();
             hasher.update(l.as_bytes());
             let computed_for_this_line = hex::encode(hasher.finalize());
 
             let ev: Event = serde_json::from_str(&l)?;
-            if ev.prev_hash != prev_hash { anyhow::bail!("prev_hash mismatch at index {}", count); }
+            if ev.prev_hash != prev_hash {
+                anyhow::bail!("prev_hash mismatch at index {}", count);
+            }
 
             let mut ev_no_sig = ev.clone();
             ev_no_sig.sig = String::new();
@@ -228,9 +247,13 @@ impl Store {
         let mut score: i32 = 0;
         for line in reader.lines() {
             let l = line?;
-            if l.trim().is_empty() { continue; }
+            if l.trim().is_empty() {
+                continue;
+            }
             let ev: Event = serde_json::from_str(&l)?;
-            if ev.subject_peer_id == subject_peer_id { score += ev.weight; }
+            if ev.subject_peer_id == subject_peer_id {
+                score += ev.weight;
+            }
         }
         Ok(score)
     }

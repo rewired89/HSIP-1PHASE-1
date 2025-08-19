@@ -11,7 +11,7 @@
 //      HSIP_RL_BAN_MS=<int>              (default: 30000)
 // 3) Optional end-to-end encryption (both sides):
 //      HSIP_ENC_KEY_HEX=<32-byte hex>    (ChaCha20-Poly1305, 12B nonce)
-// 4) NEW: Replay protection (listener):
+// 4) Replay protection (listener):
 //      HSIP_REPLAY_WINDOW_MS=<int>       (default: 60000)
 //      HSIP_TS_SKEW_MS=<int>             (default: 30000)
 
@@ -39,9 +39,14 @@ use rand::RngCore;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]
 enum ControlFrame {
-    HELLO(String),                     // pretty-printed JSON of HELLO
-    CONSENT_REQUEST(ConsentRequest),   // raw JSON struct
-    CONSENT_RESPONSE(ConsentResponse), // raw JSON struct
+    #[serde(rename = "HELLO")]
+    Hello(String), // pretty-printed JSON of HELLO
+
+    #[serde(rename = "CONSENT_REQUEST")]
+    ConsentRequest(ConsentRequest), // raw JSON struct
+
+    #[serde(rename = "CONSENT_RESPONSE")]
+    ConsentResponse(ConsentResponse), // raw JSON struct
 }
 
 // On-the-wire encrypted envelope
@@ -109,7 +114,9 @@ fn decrypt_if_needed(bytes: &[u8]) -> Result<Vec<u8>> {
         let ct_hex = v.get("ct_hex").and_then(|x| x.as_str()).ok_or_else(|| anyhow!("ENC missing ct_hex"))?;
         let nonce_vec = hex::decode(nonce_hex).map_err(|e| anyhow!("nonce hex: {e}"))?;
         let ct = hex::decode(ct_hex).map_err(|e| anyhow!("ct hex: {e}"))?;
-        if nonce_vec.len() != 12 { return Err(anyhow!("nonce must be 12 bytes")); }
+        if nonce_vec.len() != 12 {
+            return Err(anyhow!("nonce must be 12 bytes"));
+        }
         let nonce = Nonce::from_slice(&nonce_vec);
         let cipher = ChaCha20Poly1305::new(&key.into());
         let pt = cipher
@@ -129,7 +136,7 @@ fn send_frame(sock: &UdpSocket, to: &str, frame: &ControlFrame) -> Result<()> {
     Ok(())
 }
 
-fn recv_frame<'b>(buf: &'b mut [u8], sock: &UdpSocket) -> Result<(ControlFrame, SocketAddr)> {
+fn recv_frame(buf: &mut [u8], sock: &UdpSocket) -> Result<(ControlFrame, SocketAddr)> {
     let (n, from) = sock.recv_from(buf)?;
     let wire = &buf[..n];
     let plain = decrypt_if_needed(wire)?;
@@ -139,9 +146,9 @@ fn recv_frame<'b>(buf: &'b mut [u8], sock: &UdpSocket) -> Result<(ControlFrame, 
 
 fn other_type(cf: &ControlFrame) -> &'static str {
     match cf {
-        ControlFrame::HELLO(_) => "HELLO",
-        ControlFrame::CONSENT_REQUEST(_) => "CONSENT_REQUEST",
-        ControlFrame::CONSENT_RESPONSE(_) => "CONSENT_RESPONSE",
+        ControlFrame::Hello(_) => "HELLO",
+        ControlFrame::ConsentRequest(_) => "CONSENT_REQUEST",
+        ControlFrame::ConsentResponse(_) => "CONSENT_RESPONSE",
     }
 }
 
@@ -173,7 +180,7 @@ impl RateLimiter {
                 self.bans.remove(&ip);
             }
         }
-        let q = self.hits.entry(ip).or_insert_with(VecDeque::new);
+        let q = self.hits.entry(ip).or_default();
         while let Some(&t0) = q.front() {
             if now.duration_since(t0) > self.window {
                 q.pop_front();
@@ -212,7 +219,7 @@ impl ReplayGuard {
 
     fn allow(&mut self, requester_peer_id: &str, nonce_hex: &str, req_ts_ms: u64, now_ms: u64) -> bool {
         // reject if timestamp too far in the past/future
-        let delta = if now_ms > req_ts_ms { now_ms - req_ts_ms } else { req_ts_ms - now_ms };
+        let delta = now_ms.abs_diff(req_ts_ms);
         if delta > self.window_ms + self.skew_ms {
             return false;
         }
@@ -253,7 +260,7 @@ pub fn listen_hello(addr: &str) -> Result<()> {
     let mut buf = vec![0u8; 64 * 1024];
     loop {
         match recv_frame(&mut buf, &sock) {
-            Ok((ControlFrame::HELLO(s), from)) => {
+            Ok((ControlFrame::Hello(s), from)) => {
                 println!("[HELLO] from {}:\n{}", from, s);
             }
             Ok((other, from)) => {
@@ -269,17 +276,16 @@ pub fn send_hello(sk: &SigningKey, vk: &VerifyingKey, to: &str, ts_ms: u64) -> R
     let sock = bind_udp("0.0.0.0:0")?;
     let hello = build_hello(sk, vk, ts_ms);
     let json = serde_json::to_string_pretty(&hello)?;
-    let frame = ControlFrame::HELLO(json);
+    let frame = ControlFrame::Hello(json);
     send_frame(&sock, to, &frame)?;
     Ok(())
 }
 
 /// Listen for CONSENT control-plane frames (requests/responses).
-/// Optional policies:
 /// - Reputation
 /// - Rate limiting
 /// - Replay protection
-/// Optional encryption: HSIP_ENC_KEY_HEX must be set (same key on both ends)
+///   Optional encryption: HSIP_ENC_KEY_HEX must be set (same key on both ends)
 pub fn listen_control(addr: &str) -> Result<()> {
     let sock = bind_udp(addr)?;
     println!("[listen_control] bound to {}", addr);
@@ -333,7 +339,7 @@ pub fn listen_control(addr: &str) -> Result<()> {
         }
 
         match frame {
-            ControlFrame::CONSENT_REQUEST(req) => {
+            ControlFrame::ConsentRequest(req) => {
                 println!("[CONSENT_REQUEST] from {}", from);
 
                 // ---- Replay protection (per requester) ----
@@ -343,12 +349,7 @@ pub fn listen_control(addr: &str) -> Result<()> {
                         "[Replay] drop requester={} nonce={} ts_ms={}",
                         req.requester_peer_id, req.nonce_hex, req.ts_ms
                     );
-                    // Optionally: send a signed DENY here (commented out to stay quiet)
-                    // let (sk, vk) = load_keypair().map_err(|e| anyhow!(e))?;
-                    // let deny = build_response(&sk, &vk, &req, "deny", 0, now_ms_u64)?;
-                    // let frame = ControlFrame::CONSENT_RESPONSE(deny);
-                    // let wire = encrypt_if_enabled(&serde_json::to_vec(&frame)?)?;
-                    // sock.send_to(&wire, from)?;
+                    // Optionally: send a signed DENY here (quiet by default)
                     continue;
                 }
 
@@ -369,7 +370,7 @@ pub fn listen_control(addr: &str) -> Result<()> {
                     req.requester_peer_id, req.purpose, req.expires_ms
                 );
             }
-            ControlFrame::CONSENT_RESPONSE(resp) => {
+            ControlFrame::ConsentResponse(resp) => {
                 println!(
                     "[CONSENT_RESPONSE] from {} decision={} ttl_ms={}",
                     from, resp.decision, resp.ttl_ms
@@ -385,14 +386,14 @@ pub fn listen_control(addr: &str) -> Result<()> {
 /// Send a CONSENT_REQUEST over UDP to <to>.
 pub fn send_consent_request(to: &str, req: &ConsentRequest) -> Result<()> {
     let sock = bind_udp("0.0.0.0:0")?;
-    let frame = ControlFrame::CONSENT_REQUEST(req.clone());
+    let frame = ControlFrame::ConsentRequest(req.clone());
     send_frame(&sock, to, &frame)
 }
 
 /// Send a CONSENT_RESPONSE over UDP to <to>.
 pub fn send_consent_response(to: &str, resp: &ConsentResponse) -> Result<()> {
     let sock = bind_udp("0.0.0.0:0")?;
-    let frame = ControlFrame::CONSENT_RESPONSE(resp.clone());
+    let frame = ControlFrame::ConsentResponse(resp.clone());
     send_frame(&sock, to, &frame)
 }
 
@@ -421,7 +422,7 @@ fn maybe_deny_low_rep(sock: &UdpSocket, from: &SocketAddr, req: &ConsentRequest,
         let (sk, vk) = load_keypair().map_err(|e| anyhow!(e))?;
         let deny = build_response(&sk, &vk, req, "deny", 0, now_ms())
             .map_err(|e| anyhow!("build deny response: {e}"))?;
-        let frame = ControlFrame::CONSENT_RESPONSE(deny);
+        let frame = ControlFrame::ConsentResponse(deny);
         let wire = encrypt_if_enabled(&serde_json::to_vec(&frame)?)?;
         sock.send_to(&wire, from)?;
 

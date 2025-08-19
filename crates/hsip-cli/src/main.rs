@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 
 use hsip_core::consent::{
-    build_request, build_response, verify_request, verify_response, cid_hex, ConsentRequest,
+    build_request, build_response, cid_hex, verify_request, verify_response, ConsentRequest,
     ConsentResponse,
 };
 use hsip_core::identity::{generate_keypair, peer_id_from_pubkey, sk_to_hex, vk_to_hex};
@@ -18,14 +18,16 @@ use hsip_net::udp::{
 };
 
 // --- encrypted export/import deps ---
+use argon2::password_hash::{PasswordHash, SaltString};
 use argon2::{Argon2, PasswordHasher};
-use argon2::password_hash::{SaltString, PasswordHash};
+use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    ChaCha20Poly1305, Key, Nonce,
+};
 use rand::rngs::OsRng;
 use rand::Rng; // for try_fill
-use chacha20poly1305::{ChaCha20Poly1305, aead::{Aead, KeyInit}, Key, Nonce};
 use rpassword::prompt_password;
-use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-use hex;
 
 mod cmd_rep;
 mod config;
@@ -45,54 +47,101 @@ enum Commands {
     Whoami,
 
     /// Export identity to plaintext JSON (keep private!)
-    KeyExport { #[arg(long)] out: Option<String> },
+    KeyExport {
+        #[arg(long)]
+        out: Option<String>,
+    },
 
     /// Import identity from plaintext JSON
-    KeyImport { #[arg(long)] file: String },
+    KeyImport {
+        #[arg(long)]
+        file: String,
+    },
 
     /// Export identity encrypted with a passphrase (Argon2id + ChaCha20-Poly1305)
-    KeyExportEnc { #[arg(long)] out: Option<String> },
+    KeyExportEnc {
+        #[arg(long)]
+        out: Option<String>,
+    },
 
     /// Import encrypted identity (prompts for passphrase)
-    KeyImportEnc { #[arg(long)] file: String },
+    KeyImportEnc {
+        #[arg(long)]
+        file: String,
+    },
 
     // --- Hello ---
     Hello,
-    Listen { #[arg(long, default_value = "0.0.0.0:40404")] addr: String },
-    Send { #[arg(long)] to: String },
+    Listen {
+        #[arg(long, default_value = "0.0.0.0:40404")]
+        addr: String,
+    },
+    Send {
+        #[arg(long)]
+        to: String,
+    },
 
     // --- Consent (local) ---
     ConsentRequest {
-        #[arg(long)] file: String,
-        #[arg(long)] purpose: String,
-        #[arg(long)] expires_ms: u64,
-        #[arg(long, default_value = "consent_request.json")] out: String,
+        #[arg(long)]
+        file: String,
+        #[arg(long)]
+        purpose: String,
+        #[arg(long)]
+        expires_ms: u64,
+        #[arg(long, default_value = "consent_request.json")]
+        out: String,
     },
-    ConsentVerify { #[arg(long, default_value = "consent_request.json")] file: String },
+    ConsentVerify {
+        #[arg(long, default_value = "consent_request.json")]
+        file: String,
+    },
 
     // --- Consent (UDP) ---
     ConsentListen {
-        #[arg(long, default_value = "0.0.0.0:40405")] addr: String,
-        #[arg(long, default_value_t = false)] enforce_rep: bool,
-        #[arg(long, default_value_t = -6)] threshold: i32,
+        #[arg(long, default_value = "0.0.0.0:40405")]
+        addr: String,
+        #[arg(long, default_value_t = false)]
+        enforce_rep: bool,
+        #[arg(long, default_value_t = -6)]
+        threshold: i32,
     },
-    ConsentSendRequest { #[arg(long)] to: String, #[arg(long, default_value = "req.json")] file: String },
-    ConsentSendResponse { #[arg(long)] to: String, #[arg(long, default_value = "resp.json")] file: String },
+    ConsentSendRequest {
+        #[arg(long)]
+        to: String,
+        #[arg(long, default_value = "req.json")]
+        file: String,
+    },
+    ConsentSendResponse {
+        #[arg(long)]
+        to: String,
+        #[arg(long, default_value = "resp.json")]
+        file: String,
+    },
 
     /// Create and sign a CONSENT_RESPONSE for a given request JSON.
     /// Requester peer is auto-read from request JSON; --requester-peer is a fallback.
     ConsentRespond {
-        #[arg(long, default_value = "req.json")] request: String,
-        #[arg(long)] decision: String,
-        #[arg(long, default_value_t = 0)] ttl_ms: u64,
-        #[arg(long, default_value = "resp.json")] out: String,
-        #[arg(long, default_value_t = false)] enforce_rep: bool,
-        #[arg(long)] requester_peer: Option<String>,
-        #[arg(long, default_value_t = -6)] threshold: i32,
+        #[arg(long, default_value = "req.json")]
+        request: String,
+        #[arg(long)]
+        decision: String,
+        #[arg(long, default_value_t = 0)]
+        ttl_ms: u64,
+        #[arg(long, default_value = "resp.json")]
+        out: String,
+        #[arg(long, default_value_t = false)]
+        enforce_rep: bool,
+        #[arg(long)]
+        requester_peer: Option<String>,
+        #[arg(long, default_value_t = -6)]
+        threshold: i32,
     },
     ConsentVerifyResponse {
-        #[arg(long, default_value = "req.json")] request: String,
-        #[arg(long, default_value = "resp.json")] response: String,
+        #[arg(long, default_value = "req.json")]
+        request: String,
+        #[arg(long, default_value = "resp.json")]
+        response: String,
     },
 
     // --- Reputation ---
@@ -200,7 +249,9 @@ fn main() {
             // AEAD encrypt with random 96-bit nonce
             let cipher = ChaCha20Poly1305::new(key);
             let mut nonce_bytes = [0u8; 12];
-            OsRng.try_fill(&mut nonce_bytes).expect("failed to fill nonce");
+            OsRng
+                .try_fill(&mut nonce_bytes)
+                .expect("failed to fill nonce");
             let nonce = Nonce::from_slice(&nonce_bytes);
 
             let sk_hex = sk_to_hex(&sk);
@@ -227,9 +278,18 @@ fn main() {
             let s = fs::read_to_string(&file).expect("read encrypted identity json");
             let v: serde_json::Value = serde_json::from_str(&s).expect("parse json");
 
-            let ph_s = v.get("argon2").and_then(|x| x.as_str()).expect("missing argon2");
-            let nonce_b64 = v.get("nonce_b64").and_then(|x| x.as_str()).expect("missing nonce_b64");
-            let ct_b64 = v.get("ciphertext_b64").and_then(|x| x.as_str()).expect("missing ciphertext_b64");
+            let ph_s = v
+                .get("argon2")
+                .and_then(|x| x.as_str())
+                .expect("missing argon2");
+            let nonce_b64 = v
+                .get("nonce_b64")
+                .and_then(|x| x.as_str())
+                .expect("missing nonce_b64");
+            let ct_b64 = v
+                .get("ciphertext_b64")
+                .and_then(|x| x.as_str())
+                .expect("missing ciphertext_b64");
 
             let pass = prompt_password("Passphrase: ").expect("read pass");
 
@@ -237,7 +297,9 @@ fn main() {
             let parsed_ph = PasswordHash::new(ph_s).expect("parse argon2 hash");
             let salt = parsed_ph.salt.expect("no salt in PHC");
             let argon2 = Argon2::default();
-            let ph2 = argon2.hash_password(pass.as_bytes(), salt).expect("argon2 re-hash");
+            let ph2 = argon2
+                .hash_password(pass.as_bytes(), salt)
+                .expect("argon2 re-hash");
             // FIX: hold the String before borrowing
             let hash_str2 = ph2.hash.unwrap();
             let key_material = hash_str2.as_bytes();
@@ -248,7 +310,8 @@ fn main() {
             let ct = B64.decode(ct_b64).expect("b64 ct");
 
             let cipher = ChaCha20Poly1305::new(key);
-            let pt = cipher.decrypt(Nonce::from_slice(&nonce_bytes), ct.as_ref())
+            let pt = cipher
+                .decrypt(Nonce::from_slice(&nonce_bytes), ct.as_ref())
                 .expect("decrypt");
 
             let sk_hex = String::from_utf8(pt).expect("utf8");
@@ -286,7 +349,12 @@ fn main() {
         }
 
         // ===== Consent (local files) =====
-        Commands::ConsentRequest { file, purpose, expires_ms, out } => {
+        Commands::ConsentRequest {
+            file,
+            purpose,
+            expires_ms,
+            out,
+        } => {
             let (sk, vk) = load_keypair().expect("load identity first via `hsip init`");
             let data = fs::read(&file).expect("read file");
             let cid = cid_hex(&data);
@@ -305,8 +373,14 @@ fn main() {
         }
 
         // ===== Consent over UDP =====
-        Commands::ConsentListen { addr, enforce_rep, threshold } => {
-            if enforce_rep { std::env::set_var("HSIP_ENFORCE_REP", "1"); }
+        Commands::ConsentListen {
+            addr,
+            enforce_rep,
+            threshold,
+        } => {
+            if enforce_rep {
+                std::env::set_var("HSIP_ENFORCE_REP", "1");
+            }
             std::env::set_var("HSIP_REP_THRESHOLD", threshold.to_string());
             if let Err(e) = listen_control(&addr) {
                 eprintln!("consent listen error: {e}");
@@ -323,7 +397,8 @@ fn main() {
         }
         Commands::ConsentSendResponse { to, file } => {
             let bytes = std::fs::read(&file).expect("read response json");
-            let resp: ConsentResponse = serde_json::from_slice(&bytes).expect("parse response json");
+            let resp: ConsentResponse =
+                serde_json::from_slice(&bytes).expect("parse response json");
             if let Err(e) = send_consent_response(&to, &resp) {
                 eprintln!("send consent response error: {e}");
             } else {
@@ -332,7 +407,15 @@ fn main() {
         }
 
         // ===== Consent Respond (local) with policy debug
-        Commands::ConsentRespond { request, decision, ttl_ms, out, enforce_rep, requester_peer, threshold } => {
+        Commands::ConsentRespond {
+            request,
+            decision,
+            ttl_ms,
+            out,
+            enforce_rep,
+            requester_peer,
+            threshold,
+        } => {
             let (sk, vk) = load_keypair().expect("load identity first via `hsip init`");
 
             let req_bytes = fs::read(&request).expect("read request file");
@@ -346,14 +429,22 @@ fn main() {
 
             let cfg = config::read_config().ok().flatten();
             let env_enforce = std::env::var("HSIP_ENFORCE_REP").ok().as_deref() == Some("1");
-            let cfg_enforce = cfg.as_ref().and_then(|c| c.policy.enforce_rep).unwrap_or(false);
+            let cfg_enforce = cfg
+                .as_ref()
+                .and_then(|c| c.policy.enforce_rep)
+                .unwrap_or(false);
             let effective_enforce = enforce_rep || env_enforce || cfg_enforce;
 
-            let env_thresh = std::env::var("HSIP_REP_THRESHOLD").ok().and_then(|s| s.parse::<i32>().ok());
-            let cfg_thresh  = cfg.as_ref().and_then(|c| c.policy.rep_threshold);
+            let env_thresh = std::env::var("HSIP_REP_THRESHOLD")
+                .ok()
+                .and_then(|s| s.parse::<i32>().ok());
+            let cfg_thresh = cfg.as_ref().and_then(|c| c.policy.rep_threshold);
             let block_threshold = env_thresh.or(cfg_thresh).unwrap_or(threshold);
 
-            let log_path: PathBuf = dirs::home_dir().unwrap().join(".hsip").join("reputation.log");
+            let log_path: PathBuf = dirs::home_dir()
+                .unwrap()
+                .join(".hsip")
+                .join("reputation.log");
             eprintln!(
                 "[PolicyDebug] enforce={} (flag={} env={} cfg={}), threshold={}, requester='{}', log='{}'",
                 effective_enforce, enforce_rep, env_enforce, cfg_enforce, block_threshold, requester_peer_id, log_path.display()
@@ -362,19 +453,27 @@ fn main() {
             let mut final_decision = decision.clone();
 
             if effective_enforce && !requester_peer_id.is_empty() {
-                let store = hsip_reputation::store::Store::open(log_path.clone()).expect("open rep log");
+                let store =
+                    hsip_reputation::store::Store::open(log_path.clone()).expect("open rep log");
                 let score = store.compute_score(&requester_peer_id).unwrap_or(0);
-                eprintln!("[PolicyDebug] computed score for {} = {}", requester_peer_id, score);
+                eprintln!(
+                    "[PolicyDebug] computed score for {} = {}",
+                    requester_peer_id, score
+                );
 
                 if score < block_threshold {
-                    eprintln!("[Policy] requester {} has score {} < {} → auto-deny",
-                        requester_peer_id, score, block_threshold);
+                    eprintln!(
+                        "[Policy] requester {} has score {} < {} → auto-deny",
+                        requester_peer_id, score, block_threshold
+                    );
                     final_decision = "deny".to_string();
 
                     let (my_sk, my_vk) = load_keypair().expect("load identity");
                     let my_peer = peer_id_from_pubkey(&my_vk);
                     let _ = store.append(
-                        &my_sk, &my_peer, &requester_peer_id,
+                        &my_sk,
+                        &my_peer,
+                        &requester_peer_id,
                         hsip_reputation::store::DecisionType::MISBEHAVIOR,
                         1,
                         "POLICY_THRESHOLD",
@@ -383,15 +482,21 @@ fn main() {
                         Some("7d".to_string()),
                     );
                 } else {
-                    eprintln!("[Policy] requester {} score {} ≥ {} → allow", requester_peer_id, score, block_threshold);
+                    eprintln!(
+                        "[Policy] requester {} score {} ≥ {} → allow",
+                        requester_peer_id, score, block_threshold
+                    );
                 }
             } else if effective_enforce && requester_peer_id.is_empty() {
-                eprintln!("[Policy] enforcement enabled but requester peer missing; skipping enforcement");
+                eprintln!(
+                    "[Policy] enforcement enabled but requester peer missing; skipping enforcement"
+                );
             } else {
                 eprintln!("[PolicyDebug] enforcement disabled");
             }
 
-            let resp = build_response(&sk, &vk, &req, &final_decision, ttl_ms, now_ms()).expect("build response");
+            let resp = build_response(&sk, &vk, &req, &final_decision, ttl_ms, now_ms())
+                .expect("build response");
             let json = serde_json::to_string_pretty(&resp).unwrap();
             fs::write(&out, json).expect("write response");
             println!("Wrote {}", out);
