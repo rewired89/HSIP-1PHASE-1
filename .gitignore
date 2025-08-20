@@ -25,3 +25,6 @@ payload.txt
 
 # Local patches
 stash_wip_before_rebase.patch
+
+# build artifacts
+/dist/
