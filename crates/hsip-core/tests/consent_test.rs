@@ -47,7 +47,8 @@ fn signed_request() -> ConsentRequest {
         nonce_hex: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
         // required extra fields:
         requester_pub_key_hex: hex_encode(vk_req.to_bytes().as_ref()),
-        content_cid_hex: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(), // 32 bytes hex (dummy)
+        content_cid_hex: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            .to_string(), // 32 bytes hex (dummy)
         sig_hex: String::new(), // empty for signing step
     };
 

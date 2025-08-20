@@ -5,4 +5,4 @@
 pub mod store;
 
 // Optional: convenient re-exports
-pub use store::{DecisionType, Evidence, Event, Store};
+pub use store::{DecisionType, Event, Evidence, Store};

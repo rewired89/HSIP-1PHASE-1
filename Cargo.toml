@@ -4,6 +4,5 @@ members = [
     "crates/hsip-net",
     "crates/hsip-reputation",
     "crates/hsip-cli",
-    "crates/hsip-examples",
 ]
 resolver = "2"

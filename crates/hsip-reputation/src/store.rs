@@ -36,12 +36,12 @@ pub struct Evidence {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
     pub version: u32,
-    pub event_id: String,  // uuid
-    pub ts: String,        // timestamp
+    pub event_id: String, // uuid
+    pub ts: String,       // timestamp
     pub actor_peer_id: String,
     pub subject_peer_id: String,
     pub decision_type: DecisionType,
-    pub severity: u8,      // 0..3
+    pub severity: u8, // 0..3
     pub reason_code: String,
     pub reason_text: String,
     pub evidence: Vec<Evidence>,
@@ -92,7 +92,9 @@ impl Store {
                 OpenOptions::new().create(true).append(true).open(p)?;
             }
         }
-        Ok(Self { path: p.to_path_buf() })
+        Ok(Self {
+            path: p.to_path_buf(),
+        })
     }
 
     #[allow(dead_code)]

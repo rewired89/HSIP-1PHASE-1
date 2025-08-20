@@ -1,5 +1,5 @@
 use base64::Engine; // trait for .encode()
-use ed25519_dalek::{Signer, SigningKey, VerifyingKey, Signature, SignatureError};
+use ed25519_dalek::{Signature, SignatureError, Signer, SigningKey, VerifyingKey};
 use hsip_core::identity::peer_id_from_pubkey;
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -8,13 +8,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Hello {
     #[serde(rename = "type")]
-    pub msg_type: String,   // "HELLO"
-    pub peer_id: String,    // derived from pubkey (blake3 -> base32[26])
-    pub pub_key_hex: String,// hex(32B)
+    pub msg_type: String, // "HELLO"
+    pub peer_id: String,     // derived from pubkey (blake3 -> base32[26])
+    pub pub_key_hex: String, // hex(32B)
     pub caps: Vec<String>,
-    pub ts: u64,            // unix ms
-    pub nonce: String,      // base64(12 bytes)
-    pub sig: String,        // hex(64B ed25519 signature)
+    pub ts: u64,       // unix ms
+    pub nonce: String, // base64(12 bytes)
+    pub sig: String,   // hex(64B ed25519 signature)
 }
 
 fn caps_detect() -> Vec<String> {
@@ -68,7 +68,9 @@ pub fn build_hello(sk: &SigningKey, vk: &VerifyingKey, now_ms: u64) -> Hello {
 pub fn verify_hello(h: &Hello) -> Result<(), String> {
     // 1) Rebuild verifying key from pub_key_hex
     let bytes = hex::decode(&h.pub_key_hex).map_err(|e| format!("bad pub key hex: {e}"))?;
-    let arr: [u8; 32] = bytes.try_into().map_err(|_| "pub key wrong length".to_string())?;
+    let arr: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| "pub key wrong length".to_string())?;
     let vk = VerifyingKey::from_bytes(&arr).map_err(|e| format!("vk error: {e}"))?;
 
     // 2) Check peer_id matches pubkey
@@ -84,8 +86,8 @@ pub fn verify_hello(h: &Hello) -> Result<(), String> {
     let sig_arr: [u8; 64] = sig_bytes.try_into().map_err(|_| "sig len".to_string())?;
     // Replace the two lines that build `sig` and verify:
     let sig = Signature::from_bytes(&sig_arr); // <- no map_err; this cannot fail given a 64-byte array
-vk.verify_strict(pre.as_bytes(), &sig)
-    .map_err(|e: SignatureError| format!("verify failed: {e}"))?;
+    vk.verify_strict(pre.as_bytes(), &sig)
+        .map_err(|e: SignatureError| format!("verify failed: {e}"))?;
 
     Ok(())
 }

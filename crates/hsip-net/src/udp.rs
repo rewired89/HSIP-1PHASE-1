@@ -53,7 +53,7 @@ enum ControlFrame {
 #[derive(Debug, Serialize, Deserialize)]
 struct EncEnvelope {
     #[serde(rename = "type")]
-    typ: String,       // always "ENC"
+    typ: String, // always "ENC"
     nonce_hex: String, // 12B nonce
     ct_hex: String,    // ciphertext of serialized ControlFrame
 }
@@ -109,9 +109,16 @@ fn encrypt_if_enabled(plain: &[u8]) -> Result<Vec<u8>> {
 fn decrypt_if_needed(bytes: &[u8]) -> Result<Vec<u8>> {
     let v: Value = serde_json::from_slice(bytes)?;
     if v.get("type").and_then(|t| t.as_str()) == Some("ENC") {
-        let key = enc_key_from_env().ok_or_else(|| anyhow!("encrypted frame but HSIP_ENC_KEY_HEX is not set"))?;
-        let nonce_hex = v.get("nonce_hex").and_then(|x| x.as_str()).ok_or_else(|| anyhow!("ENC missing nonce_hex"))?;
-        let ct_hex = v.get("ct_hex").and_then(|x| x.as_str()).ok_or_else(|| anyhow!("ENC missing ct_hex"))?;
+        let key = enc_key_from_env()
+            .ok_or_else(|| anyhow!("encrypted frame but HSIP_ENC_KEY_HEX is not set"))?;
+        let nonce_hex = v
+            .get("nonce_hex")
+            .and_then(|x| x.as_str())
+            .ok_or_else(|| anyhow!("ENC missing nonce_hex"))?;
+        let ct_hex = v
+            .get("ct_hex")
+            .and_then(|x| x.as_str())
+            .ok_or_else(|| anyhow!("ENC missing ct_hex"))?;
         let nonce_vec = hex::decode(nonce_hex).map_err(|e| anyhow!("nonce hex: {e}"))?;
         let ct = hex::decode(ct_hex).map_err(|e| anyhow!("ct hex: {e}"))?;
         if nonce_vec.len() != 12 {
@@ -217,7 +224,13 @@ impl ReplayGuard {
         }
     }
 
-    fn allow(&mut self, requester_peer_id: &str, nonce_hex: &str, req_ts_ms: u64, now_ms: u64) -> bool {
+    fn allow(
+        &mut self,
+        requester_peer_id: &str,
+        nonce_hex: &str,
+        req_ts_ms: u64,
+        now_ms: u64,
+    ) -> bool {
         // reject if timestamp too far in the past/future
         let delta = now_ms.abs_diff(req_ts_ms);
         if delta > self.window_ms + self.skew_ms {
@@ -264,7 +277,11 @@ pub fn listen_hello(addr: &str) -> Result<()> {
                 println!("[HELLO] from {}:\n{}", from, s);
             }
             Ok((other, from)) => {
-                println!("[listen_hello] got unexpected {:?} from {}", other_type(&other), from);
+                println!(
+                    "[listen_hello] got unexpected {:?} from {}",
+                    other_type(&other),
+                    from
+                );
             }
             Err(e) => eprintln!("[listen_hello] recv error: {e}"),
         }
@@ -299,14 +316,29 @@ pub fn listen_control(addr: &str) -> Result<()> {
         .unwrap_or(-6);
 
     // Rate limiting policy
-    let rl_max: usize = std::env::var("HSIP_RL_MAX").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
-    let rl_window_ms: u64 = std::env::var("HSIP_RL_WINDOW_MS").ok().and_then(|s| s.parse().ok()).unwrap_or(10_000);
-    let rl_ban_ms: u64 = std::env::var("HSIP_RL_BAN_MS").ok().and_then(|s| s.parse().ok()).unwrap_or(30_000);
+    let rl_max: usize = std::env::var("HSIP_RL_MAX")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30);
+    let rl_window_ms: u64 = std::env::var("HSIP_RL_WINDOW_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10_000);
+    let rl_ban_ms: u64 = std::env::var("HSIP_RL_BAN_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30_000);
     let mut rl = RateLimiter::new(rl_max, rl_window_ms, rl_ban_ms);
 
     // Replay protection policy
-    let rp_window_ms: u64 = std::env::var("HSIP_REPLAY_WINDOW_MS").ok().and_then(|s| s.parse().ok()).unwrap_or(60_000);
-    let rp_skew_ms: u64   = std::env::var("HSIP_TS_SKEW_MS").ok().and_then(|s| s.parse().ok()).unwrap_or(30_000);
+    let rp_window_ms: u64 = std::env::var("HSIP_REPLAY_WINDOW_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(60_000);
+    let rp_skew_ms: u64 = std::env::var("HSIP_TS_SKEW_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30_000);
     let mut rp = ReplayGuard::new(rp_window_ms, rp_skew_ms);
 
     if enc_key_from_env().is_some() {
@@ -344,7 +376,12 @@ pub fn listen_control(addr: &str) -> Result<()> {
 
                 // ---- Replay protection (per requester) ----
                 let now_ms_u64 = now_ms();
-                if !rp.allow(&req.requester_peer_id, &req.nonce_hex, req.ts_ms, now_ms_u64) {
+                if !rp.allow(
+                    &req.requester_peer_id,
+                    &req.nonce_hex,
+                    req.ts_ms,
+                    now_ms_u64,
+                ) {
                     eprintln!(
                         "[Replay] drop requester={} nonce={} ts_ms={}",
                         req.requester_peer_id, req.nonce_hex, req.ts_ms
@@ -377,7 +414,11 @@ pub fn listen_control(addr: &str) -> Result<()> {
                 );
             }
             other => {
-                println!("[listen_control] unexpected {:?} from {}", other_type(&other), from);
+                println!(
+                    "[listen_control] unexpected {:?} from {}",
+                    other_type(&other),
+                    from
+                );
             }
         }
     }
@@ -399,7 +440,12 @@ pub fn send_consent_response(to: &str, resp: &ConsentResponse) -> Result<()> {
 
 // ========================= Enforcement helpers ================================
 
-fn maybe_deny_low_rep(sock: &UdpSocket, from: &SocketAddr, req: &ConsentRequest, threshold: i32) -> Result<()> {
+fn maybe_deny_low_rep(
+    sock: &UdpSocket,
+    from: &SocketAddr,
+    req: &ConsentRequest,
+    threshold: i32,
+) -> Result<()> {
     let requester = req.requester_peer_id.clone();
 
     // Open log and compute score

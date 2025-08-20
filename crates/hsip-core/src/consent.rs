@@ -1,32 +1,32 @@
-use ed25519_dalek::{Signer, SigningKey, VerifyingKey, Signature, SignatureError};
+use blake3;
+use ed25519_dalek::{Signature, SignatureError, Signer, SigningKey, VerifyingKey};
+use hex;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use blake3;
-use hex;
 
 /// What the requester is asking to do with the content
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsentRequest {
-    pub version: u8,                 // 1
-    pub requester_peer_id: String,   // derived from requester_pub_key_hex
+    pub version: u8,               // 1
+    pub requester_peer_id: String, // derived from requester_pub_key_hex
     pub requester_pub_key_hex: String,
-    pub content_cid_hex: String,     // blake3(content) hex
-    pub purpose: String,             // e.g. "indexing", "analytics", "share"
-    pub expires_ms: u64,             // absolute epoch ms when request expires
-    pub ts_ms: u64,                  // when created
-    pub nonce_hex: String,           // 12 random bytes hex to avoid replay
-    pub sig_hex: String,             // ed25519 signature over canonical preimage
+    pub content_cid_hex: String, // blake3(content) hex
+    pub purpose: String,         // e.g. "indexing", "analytics", "share"
+    pub expires_ms: u64,         // absolute epoch ms when request expires
+    pub ts_ms: u64,              // when created
+    pub nonce_hex: String,       // 12 random bytes hex to avoid replay
+    pub sig_hex: String,         // ed25519 signature over canonical preimage
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsentResponse {
-    pub version: u8,                  // 1
-    pub request_hash_hex: String,     // blake3(canonical_preimage(request))
+    pub version: u8,              // 1
+    pub request_hash_hex: String, // blake3(canonical_preimage(request))
     pub responder_peer_id: String,
     pub responder_pub_key_hex: String,
-    pub decision: String,             // "allow" | "deny"
-    pub ttl_ms: u64,                  // 0 if deny; otherwise how long allowed
+    pub decision: String, // "allow" | "deny"
+    pub ttl_ms: u64,      // 0 if deny; otherwise how long allowed
     pub ts_ms: u64,
     pub sig_hex: String,
 }
@@ -39,16 +39,27 @@ pub fn cid_hex(bytes: &[u8]) -> String {
 fn canonical_preimage_request(r: &ConsentRequest) -> String {
     format!(
         "CONSENT_REQUEST|v={}|pid={}|pub={}|cid={}|purpose={}|exp={}|ts={}|nonce={}",
-        r.version, r.requester_peer_id, r.requester_pub_key_hex,
-        r.content_cid_hex, r.purpose, r.expires_ms, r.ts_ms, r.nonce_hex
+        r.version,
+        r.requester_peer_id,
+        r.requester_pub_key_hex,
+        r.content_cid_hex,
+        r.purpose,
+        r.expires_ms,
+        r.ts_ms,
+        r.nonce_hex
     )
 }
 
 fn canonical_preimage_response(resp: &ConsentResponse) -> String {
     format!(
         "CONSENT_RESPONSE|v={}|req_hash={}|pid={}|pub={}|decision={}|ttl={}|ts={}",
-        resp.version, resp.request_hash_hex, resp.responder_peer_id,
-        resp.responder_pub_key_hex, resp.decision, resp.ttl_ms, resp.ts_ms
+        resp.version,
+        resp.request_hash_hex,
+        resp.responder_peer_id,
+        resp.responder_pub_key_hex,
+        resp.decision,
+        resp.ttl_ms,
+        resp.ts_ms
     )
 }
 

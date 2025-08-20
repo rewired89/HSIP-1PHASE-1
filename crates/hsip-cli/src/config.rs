@@ -30,12 +30,24 @@ pub struct Policy {
 pub fn apply() -> Result<()> {
     if let Some(cfg) = read_config().ok().flatten() {
         // ---- NET (set if not already set) ----
-        if let Some(k) = cfg.net.enc_key_hex { set_if_empty("HSIP_ENC_KEY_HEX", k); }
-        if let Some(v) = cfg.net.rl_max { set_if_empty("HSIP_RL_MAX", v.to_string()); }
-        if let Some(v) = cfg.net.rl_window_ms { set_if_empty("HSIP_RL_WINDOW_MS", v.to_string()); }
-        if let Some(v) = cfg.net.rl_ban_ms { set_if_empty("HSIP_RL_BAN_MS", v.to_string()); }
-        if let Some(v) = cfg.net.replay_window_ms { set_if_empty("HSIP_REPLAY_WINDOW_MS", v.to_string()); }
-        if let Some(v) = cfg.net.ts_skew_ms { set_if_empty("HSIP_TS_SKEW_MS", v.to_string()); }
+        if let Some(k) = cfg.net.enc_key_hex {
+            set_if_empty("HSIP_ENC_KEY_HEX", k);
+        }
+        if let Some(v) = cfg.net.rl_max {
+            set_if_empty("HSIP_RL_MAX", v.to_string());
+        }
+        if let Some(v) = cfg.net.rl_window_ms {
+            set_if_empty("HSIP_RL_WINDOW_MS", v.to_string());
+        }
+        if let Some(v) = cfg.net.rl_ban_ms {
+            set_if_empty("HSIP_RL_BAN_MS", v.to_string());
+        }
+        if let Some(v) = cfg.net.replay_window_ms {
+            set_if_empty("HSIP_REPLAY_WINDOW_MS", v.to_string());
+        }
+        if let Some(v) = cfg.net.ts_skew_ms {
+            set_if_empty("HSIP_TS_SKEW_MS", v.to_string());
+        }
 
         // ---- POLICY (force so it’s reliable across commands) ----
         if let Some(true) = cfg.policy.enforce_rep {
@@ -51,7 +63,9 @@ pub fn apply() -> Result<()> {
 /// Direct read of config for commands that shouldn’t rely only on env.
 pub fn read_config() -> Result<Option<Config>> {
     let path = default_path()?;
-    if !path.exists() { return Ok(None); }
+    if !path.exists() {
+        return Ok(None);
+    }
     let txt = std::fs::read_to_string(&path)?;
     let cfg: Config = toml::from_str(&txt)?;
     Ok(Some(cfg))

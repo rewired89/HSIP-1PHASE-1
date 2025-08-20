@@ -2,7 +2,7 @@
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader};
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use clap::{Args, Subcommand};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use hsip_core::identity::peer_id_from_pubkey;
@@ -105,7 +105,10 @@ pub fn run_rep(args: RepArgs) -> Result<()> {
                     .into_iter()
                     .map(|e| {
                         let (k, v) = e.split_once(':').unwrap_or(("note", e.as_str()));
-                        Evidence { kind: k.to_string(), value: v.to_string() }
+                        Evidence {
+                            kind: k.to_string(),
+                            value: v.to_string(),
+                        }
                     })
                     .collect(),
                 ttl,
@@ -163,18 +166,18 @@ fn load_keys_for_verify() -> Result<(SigningKey, VerifyingKey, String)> {
 
 fn parse_decision_type(s: &str) -> Result<DecisionType> {
     match s.trim().to_uppercase().as_str() {
-        "TRUSTED"        => Ok(DecisionType::TRUSTED),
-        "VERIFIED_ID"    => Ok(DecisionType::VERIFIED_ID),
-        "GOOD_BEHAVIOR"  => Ok(DecisionType::GOOD_BEHAVIOR),
-        "NOTE"           => Ok(DecisionType::NOTE),
-        "APPEAL"         => Ok(DecisionType::APPEAL),
-        "REVERSAL"       => Ok(DecisionType::REVERSAL),
-        "SPAM"           => Ok(DecisionType::SPAM),
-        "MALFORMED"      => Ok(DecisionType::MALFORMED),
-        "TIMEOUT"        => Ok(DecisionType::TIMEOUT),
-        "MISBEHAVIOR"    => Ok(DecisionType::MISBEHAVIOR),
-        "REPLAY"         => Ok(DecisionType::REPLAY),
-        "INVALID_SIG"    => Ok(DecisionType::INVALID_SIG),
+        "TRUSTED" => Ok(DecisionType::TRUSTED),
+        "VERIFIED_ID" => Ok(DecisionType::VERIFIED_ID),
+        "GOOD_BEHAVIOR" => Ok(DecisionType::GOOD_BEHAVIOR),
+        "NOTE" => Ok(DecisionType::NOTE),
+        "APPEAL" => Ok(DecisionType::APPEAL),
+        "REVERSAL" => Ok(DecisionType::REVERSAL),
+        "SPAM" => Ok(DecisionType::SPAM),
+        "MALFORMED" => Ok(DecisionType::MALFORMED),
+        "TIMEOUT" => Ok(DecisionType::TIMEOUT),
+        "MISBEHAVIOR" => Ok(DecisionType::MISBEHAVIOR),
+        "REPLAY" => Ok(DecisionType::REPLAY),
+        "INVALID_SIG" => Ok(DecisionType::INVALID_SIG),
         other => Err(anyhow!("unknown decision type '{}'", other)),
     }
 }
