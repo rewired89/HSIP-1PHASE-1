@@ -17,3 +17,8 @@ resp.json
 # If you ever store keys/config locally under the repo, ignore them:
 keystore/
 keys/
+
+# Local consent artifacts
+consent_request.json
+consent_response.json
+payload.txt
