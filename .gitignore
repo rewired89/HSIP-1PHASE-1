@@ -22,3 +22,6 @@ keys/
 consent_request.json
 consent_response.json
 payload.txt
+
+# Local patches
+stash_wip_before_rebase.patch
