@@ -1,0 +1,50 @@
+name: Release binaries
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build hsip-cli (release)
+        run: cargo build --release -p hsip-cli
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cd target/release
+          strip hsip-cli || true
+          tar -czf hsip-cli-linux-x64.tar.gz hsip-cli
+          sha256sum hsip-cli-linux-x64.tar.gz > hsip-cli-linux-x64.tar.gz.sha256
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd target\release
+          Compress-Archive -Path hsip-cli.exe -DestinationPath hsip-cli-windows-x64.zip
+          Get-FileHash hsip-cli-windows-x64.zip -Algorithm SHA256 | ForEach-Object { $_.Hash } | Set-Content hsip-cli-windows-x64.zip.sha256
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/release/hsip-cli-linux-x64.tar.gz
+            target/release/hsip-cli-linux-x64.tar.gz.sha256
+            target/release/hsip-cli-windows-x64.zip
+            target/release/hsip-cli-windows-x64.zip.sha256
