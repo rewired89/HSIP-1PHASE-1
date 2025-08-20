@@ -1,0 +1,22 @@
+# Default: normalize all text files to LF in repo and checkout
+* text=auto eol=lf
+
+# Rust/Cargo/config/docs
+*.rs   text eol=lf
+*.toml text eol=lf
+*.lock text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf
+
+# Keep Windows scripts as CRLF
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Binary files (never touch line endings)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
