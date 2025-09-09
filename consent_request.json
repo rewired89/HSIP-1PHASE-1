@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "requester_peer_id": "IUX2P4RHXRRRTUUCI2LMH4S2UM",
+  "requester_pub_key_hex": "13361279aa690c874466983ffb0c821e9412dc546d0a32b04b356718e00d87af",
+  "content_cid_hex": "b7f9138fbdc276667b431acaa1a63ed85daadd5522cad5bc179dbe882515f8d2",
+  "purpose": "demo",
+  "expires_ms": 60000,
+  "ts_ms": 1755659304773,
+  "nonce_hex": "003d33eb9ab3c74b8fd44269",
+  "sig_hex": "6d9dadd2f8cb722c86c733c7ad617bb4c016d81d4a2a04bca2fe357737efd7a8a3c3212744194fd63ab5497916443e2041cf6352fee9fa635464366e9aa8d20f"
+}

@@ -1,3 +1,5 @@
+// crates/hsip-cli/src/main.rs
+
 use clap::{Parser, Subcommand};
 use std::fs;
 use std::path::PathBuf;
@@ -13,9 +15,8 @@ use hsip_core::identity::{generate_keypair, peer_id_from_pubkey, sk_to_hex, vk_t
 use hsip_core::keystore::{load_keypair, save_keypair};
 
 use hsip_net::hello::build_hello;
-use hsip_net::udp::{
-    listen_control, listen_hello, send_consent_request, send_consent_response, send_hello,
-};
+use hsip_net::udp::{listen_control, send_consent_request, send_consent_response};
+use hsip_net::udp::hello::{listen_hello, send_hello};
 
 // --- encrypted export/import deps ---
 use argon2::password_hash::{PasswordHash, SaltString};
@@ -28,6 +29,17 @@ use chacha20poly1305::{
 use rand::rngs::OsRng;
 use rand::Rng; // for try_fill
 use rpassword::prompt_password;
+
+// --- cover/decoy (local thread) ---
+use rand::RngCore;
+use std::net::UdpSocket;
+use std::thread;
+use std::time::Duration;
+
+// --- session demo + wait-reply path (sealed frames over UDP) ---
+use std::net::UdpSocket as StdUdpSocket;
+use hsip_session::{Ephemeral, PeerLabel, Session};
+use x25519_dalek::PublicKey as XPublicKey;
 
 mod cmd_rep;
 mod config;
@@ -71,12 +83,19 @@ enum Commands {
     },
 
     // --- Hello ---
+    /// Print a signed HELLO JSON to stdout
     Hello,
-    Listen {
+
+    /// Listen for HELLO frames on UDP and print them
+    #[command(name = "hello-listen", aliases = ["listen"])]
+    HelloListen {
         #[arg(long, default_value = "0.0.0.0:40404")]
         addr: String,
     },
-    Send {
+
+    /// Send a HELLO frame to a UDP endpoint
+    #[command(name = "hello-send", aliases = ["send"])]
+    HelloSend {
         #[arg(long)]
         to: String,
     },
@@ -105,12 +124,40 @@ enum Commands {
         enforce_rep: bool,
         #[arg(long, default_value_t = -6)]
         threshold: i32,
+
+        // ---- cover/decoy toggles (optional) ----
+        /// Enable decoy/cover traffic to this same addr
+        #[arg(long, default_value_t = false)]
+        cover: bool,
+        /// Average number of decoy packets per minute
+        #[arg(long, default_value_t = 90)]
+        cover_rate_per_min: u32,
+        /// Minimum payload size (bytes)
+        #[arg(long, default_value_t = 256)]
+        cover_min_size: usize,
+        /// Maximum payload size (bytes)
+        #[arg(long, default_value_t = 1200)]
+        cover_max_size: usize,
+        /// Jitter around mean interval (± milliseconds)
+        #[arg(long, default_value_t = 800)]
+        cover_jitter_ms: u64,
+        /// Print a progress line every N packets (0 = silent)
+        #[arg(long, default_value_t = 0u64)]
+        cover_verbose_every: u64,
     },
     ConsentSendRequest {
         #[arg(long)]
         to: String,
         #[arg(long, default_value = "req.json")]
         file: String,
+
+        /// Wait for a sealed CONSENT_RESPONSE and print it
+        #[arg(long, default_value_t = false)]
+        wait_reply: bool,
+
+        /// Max milliseconds to wait for reply when --wait-reply is set
+        #[arg(long, default_value_t = 3000)]
+        wait_timeout_ms: u64,
     },
     ConsentSendResponse {
         #[arg(long)]
@@ -142,6 +189,54 @@ enum Commands {
         request: String,
         #[arg(long, default_value = "resp.json")]
         response: String,
+    },
+
+    // --- Session demo (sealed UDP) ---
+    /// Minimal UDP session listener: eph X25519 handshake, then opens sealed frames.
+    SessionListen {
+        #[arg(long, default_value = "127.0.0.1:50505")]
+        addr: String,
+
+        /// Enable sealed cover traffic (indistinguishable decoys) to the peer
+        #[arg(long, default_value_t = false)]
+        cover: bool,
+
+        /// Decoy packets per minute (avg)
+        #[arg(long, default_value_t = 60)]
+        cover_rate_per_min: u32,
+
+        /// Min payload size (bytes)
+        #[arg(long, default_value_t = 256)]
+        cover_min_size: usize,
+
+        /// Max payload size (bytes)
+        #[arg(long, default_value_t = 1200)]
+        cover_max_size: usize,
+
+        /// Jitter around mean interval (± ms)
+        #[arg(long, default_value_t = 800)]
+        cover_jitter_ms: u64,
+
+        /// Print progress every N packets (0=silent)
+        #[arg(long, default_value_t = 20u64)]
+        cover_verbose_every: u64,
+    },
+
+    /// Minimal UDP session sender: handshakes with listener, then sends sealed frames.
+    SessionSend {
+        /// Listener address to handshake with
+        #[arg(long, default_value = "127.0.0.1:50505")]
+        to: String,
+
+        /// Number of sealed data packets to send after handshake
+        #[arg(long, default_value_t = 10)]
+        packets: u32,
+
+        /// Min/Max sealed payload sizes
+        #[arg(long, default_value_t = 128)]
+        min_size: usize,
+        #[arg(long, default_value_t = 512)]
+        max_size: usize,
     },
 
     // --- Reputation ---
@@ -334,12 +429,12 @@ fn main() {
             let json = serde_json::to_string_pretty(&hello).unwrap();
             println!("{}", json);
         }
-        Commands::Listen { addr } => {
+        Commands::HelloListen { addr } => {
             if let Err(e) = listen_hello(&addr) {
                 eprintln!("listen error: {e}");
             }
         }
-        Commands::Send { to } => {
+        Commands::HelloSend { to } => {
             let (sk, vk) = load_keypair().expect("load identity first via `hsip init`");
             if let Err(e) = send_hello(&sk, &vk, &to, now_ms()) {
                 eprintln!("send error: {e}");
@@ -377,24 +472,180 @@ fn main() {
             addr,
             enforce_rep,
             threshold,
+
+            // cover toggles
+            cover,
+            cover_rate_per_min,
+            cover_min_size,
+            cover_max_size,
+            cover_jitter_ms,
+            cover_verbose_every,
         } => {
             if enforce_rep {
                 std::env::set_var("HSIP_ENFORCE_REP", "1");
             }
             std::env::set_var("HSIP_REP_THRESHOLD", threshold.to_string());
+
+            // Start background decoy thread if requested
+            let _cover_handle = if cover {
+                println!(
+                    "[hsip] cover ON → {} | ~{} pkt/min | sizes {}–{} | jitter ±{} ms",
+                    addr, cover_rate_per_min, cover_min_size, cover_max_size, cover_jitter_ms
+                );
+                let to_addr = addr.clone();
+                Some(thread::spawn(move || {
+                    let sock = UdpSocket::bind("0.0.0.0:0")
+                        .expect("bind ephemeral UDP socket for cover");
+                    let mut buf = vec![0u8; cover_max_size.max(cover_min_size)];
+                    let mut sent: u64 = 0;
+
+                    let mean_ms = if cover_rate_per_min == 0 {
+                        60_000
+                    } else {
+                        (60_000f64 / (cover_rate_per_min as f64)).round() as u64
+                    };
+
+                    loop {
+                        // size ∈ [min, max]
+                        let size = if cover_max_size <= cover_min_size {
+                            cover_min_size
+                        } else {
+                            cover_min_size
+                                + rand::thread_rng()
+                                    .gen_range(0..=(cover_max_size - cover_min_size))
+                        };
+
+                        OsRng.fill_bytes(&mut buf[..size]);
+
+                        let _ = sock.send_to(&buf[..size], &to_addr);
+
+                        sent += 1;
+                        if cover_verbose_every > 0 && sent % cover_verbose_every == 0 {
+                            println!(
+                                "(cover) sent {} decoys (last={} bytes) → {}",
+                                sent, size, to_addr
+                            );
+                        }
+
+                        // sleep ≈ mean ± jitter (uniform)
+                        let jit = cover_jitter_ms as i64;
+                        let delta =
+                            if jit == 0 { 0 } else { rand::thread_rng().gen_range(-jit..=jit) };
+                        let sleep_ms = ((mean_ms as i64) + delta).max(0) as u64;
+                        thread::sleep(Duration::from_millis(sleep_ms));
+                    }
+                }))
+            } else {
+                None
+            };
+
             if let Err(e) = listen_control(&addr) {
                 eprintln!("consent listen error: {e}");
             }
         }
-        Commands::ConsentSendRequest { to, file } => {
+
+        // === NEW: --wait-reply implementation here ===
+        Commands::ConsentSendRequest {
+            to,
+            file,
+            wait_reply,
+            wait_timeout_ms,
+        } => {
             let bytes = std::fs::read(&file).expect("read request json");
-            let req: ConsentRequest = serde_json::from_slice(&bytes).expect("parse request json");
-            if let Err(e) = send_consent_request(&to, &req) {
-                eprintln!("send consent request error: {e}");
-            } else {
-                println!("CONSENT_REQUEST sent to {}", to);
+            let req: ConsentRequest =
+                serde_json::from_slice(&bytes).expect("parse request json");
+
+            if !wait_reply {
+                // old path
+                if let Err(e) = send_consent_request(&to, &req) {
+                    eprintln!("send consent request error: {e}");
+                } else {
+                    println!("CONSENT_REQUEST sent to {}", to);
+                }
+                return;
+            }
+
+            // --- Wait-reply path (manual sealed handshake + send + wait) ---
+            let payload = serde_json::to_vec(&req).expect("encode req");
+
+            let sock = StdUdpSocket::bind("0.0.0.0:0").expect("bind sender");
+            sock.set_read_timeout(Some(std::time::Duration::from_millis(
+                wait_timeout_ms,
+            ))) // wait for reply
+            .expect("set timeout");
+
+            // 1) E1
+            let eph = Ephemeral::generate();
+            let our_pub = eph.public();
+            let mut e1 = [0u8; 1 + 32];
+            e1[0] = TAG_E1;
+            e1[1..].copy_from_slice(our_pub.as_bytes());
+            sock.send_to(&e1, &to).expect("send E1");
+
+            // 2) E2
+            let mut buf = [0u8; 64];
+            let (n, peer) = sock.recv_from(&mut buf).expect("recv E2");
+            if n < 1 + 32 || buf[0] != TAG_E2 {
+                panic!("unexpected handshake response");
+            }
+            let mut srv_pub_bytes = [0u8; 32];
+            srv_pub_bytes.copy_from_slice(&buf[1..33]);
+            let srv_pub = XPublicKey::from(srv_pub_bytes);
+
+            // 3) Build session
+            let label = PeerLabel {
+                label: b"CONSENTv1".to_vec(),
+            };
+            let shared = eph.into_shared(&srv_pub);
+            let mut sess = Session::from_shared_secret(shared, Some(&label));
+
+            // 4) Send sealed request
+            let ct = sess.seal(AAD_CONTROL, &payload);
+            let mut packet = Vec::with_capacity(1 + ct.len());
+            packet.push(TAG_D);
+            packet.extend_from_slice(&ct);
+            sock.send_to(&packet, &to).expect("send sealed D");
+            println!("[control-send] sealed {} bytes → {}", payload.len(), to);
+
+            // 5) Wait for a sealed D (response)
+            let mut rbuf = vec![0u8; 65535];
+            match sock.recv_from(&mut rbuf) {
+                Ok((rn, _p)) if rn >= 1 && rbuf[0] == TAG_D => {
+                    let ct = &rbuf[1..rn];
+                    match sess.open(AAD_CONTROL, ct) {
+                        Ok(pt) => {
+                            // Try to parse as ConsentResponse
+                            match serde_json::from_slice::<ConsentResponse>(&pt) {
+                                Ok(resp) => {
+                                    println!(
+                                        "[control-send] reply: decision='{}' ttl_ms={} request_hash={}",
+                                        resp.decision, resp.ttl_ms, resp.request_hash_hex
+                                    );
+                                }
+                                Err(_) => {
+                                    // show JSON anyway
+                                    let s = String::from_utf8_lossy(&pt);
+                                    println!("[control-send] reply (json): {}", s);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("[control-send] failed to open reply: {e:?}");
+                        }
+                    }
+                }
+                Ok((_rn, _p)) => {
+                    eprintln!("[control-send] unexpected frame while waiting for reply");
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[control-send] no reply within {} ms ({e})",
+                        wait_timeout_ms
+                    );
+                }
             }
         }
+
         Commands::ConsentSendResponse { to, file } => {
             let bytes = std::fs::read(&file).expect("read response json");
             let resp: ConsentResponse =
@@ -517,6 +768,199 @@ fn main() {
             }
         }
 
+        // ===== Session demo: listener (sealed frames over UDP) =====
+        Commands::SessionListen {
+            addr,
+            cover,
+            cover_rate_per_min,
+            cover_min_size,
+            cover_max_size,
+            cover_jitter_ms,
+            cover_verbose_every,
+        } => {
+            // Bind UDP
+            let sock = StdUdpSocket::bind(&addr).expect("bind listener");
+            sock.set_nonblocking(true).ok();
+            println!("[session-listen] bound on {}", addr);
+
+            // 1) Wait for E1 from client (client eph pubkey)
+            let mut buf = vec![0u8; 4096];
+            let (_n, peer) = loop {
+                match sock.recv_from(&mut buf) {
+                    Ok((n, p)) if n >= 1 + 32 && buf[0] == TAG_E1 => break (n, p),
+                    Ok((_n, _p)) => continue,
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                        continue;
+                    }
+                    Err(e) => panic!("recv E1: {e}"),
+                }
+            };
+            let mut peer_pub_bytes = [0u8; 32];
+            peer_pub_bytes.copy_from_slice(&buf[1..33]);
+            let peer_pub = XPublicKey::from(peer_pub_bytes);
+
+            // 2) Generate our eph, derive SHARED ONCE, build two sessions (RX & TX), send E2 ONCE
+            let eph = Ephemeral::generate();
+            let our_pub = eph.public();
+            let label = PeerLabel {
+                label: b"CONSENTv1".to_vec(),
+            };
+
+            // Consume eph to derive shared secret
+            let shared = eph.into_shared(&peer_pub);
+
+            // Two independent sessions from the SAME shared secret:
+            let mut sess_rx = Session::from_shared_secret(shared, Some(&label));
+            let mut sess_tx = Session::from_shared_secret(shared, Some(&label));
+
+            // Send E2 once
+            let mut e2 = [0u8; 1 + 32];
+            e2[0] = TAG_E2;
+            e2[1..].copy_from_slice(our_pub.as_bytes());
+            sock.send_to(&e2, peer).ok();
+            println!("[session-listen] handshake with {} complete", peer);
+
+            // 3) Optional sealed cover to the same peer (uses sess_tx)
+            let cover_handle = if cover {
+                println!(
+                    "[session-listen] cover ON → {} | ~{} pkt/min | sizes {}–{} | jitter ±{} ms",
+                    peer, cover_rate_per_min, cover_min_size, cover_max_size, cover_jitter_ms
+                );
+                let to_addr = peer;
+                let rate = cover_rate_per_min;
+                let min = cover_min_size;
+                let max = cover_max_size;
+                let jit = cover_jitter_ms;
+                let verbose_every = cover_verbose_every;
+
+                Some(std::thread::spawn(move || {
+                    let sock_tx = StdUdpSocket::bind("0.0.0.0:0").expect("bind tx");
+                    let mean = mean_interval_ms(rate);
+                    let mut sent: u64 = 0;
+                    loop {
+                        let size = rand_range(min, max);
+                        let mut payload = vec![0u8; size];
+                        rand::rngs::OsRng.fill_bytes(&mut payload);
+
+                        let ct = sess_tx.seal(b"type=DATA", &payload); // sealed like real data
+                        let mut packet = Vec::with_capacity(1 + ct.len());
+                        packet.push(TAG_D);
+                        packet.extend_from_slice(&ct);
+                        let _ = sock_tx.send_to(&packet, to_addr);
+
+                        sent += 1;
+                        if verbose_every > 0 && sent % verbose_every == 0 {
+                            println!(
+                                "(cover) sent {} decoys (last={} bytes) → {}",
+                                sent, size, to_addr
+                            );
+                        }
+
+                        // sleep ≈ mean ± jitter
+                        let jit_i = jit as i64;
+                        let delta =
+                            if jit_i == 0 { 0 } else { rand::thread_rng().gen_range(-jit_i..=jit_i) };
+                        let sleep_ms = ((mean as i64) + delta).max(0) as u64;
+                        std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+                    }
+                }))
+            } else {
+                None
+            };
+
+            // 4) Receive sealed D frames and open with sess_rx
+            let mut buf = vec![0u8; 4096];
+            loop {
+                match sock.recv_from(&mut buf) {
+                    Ok((n, p)) if n >= 1 && buf[0] == TAG_D => {
+                        let ct = &buf[1..n];
+                        match sess_rx.open(b"type=DATA", ct) {
+                            Ok(pt) => {
+                                println!("[session-listen] opened {} bytes from {}", pt.len(), p);
+                            }
+                            Err(e) => eprintln!("[session-listen] open error from {p}: {e:?}"),
+                        }
+                    }
+                    Ok((_n, _p)) => { /* ignore other frames */ }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    Err(e) => {
+                        eprintln!("recv error: {e}");
+                        break;
+                    }
+                }
+            }
+
+            if let Some(h) = cover_handle {
+                let _ = h.join();
+            }
+        }
+
+        // ===== Session demo: sender =====
+        Commands::SessionSend {
+            to,
+            packets,
+            min_size,
+            max_size,
+        } => {
+            // bind ephemeral UDP
+            let sock = StdUdpSocket::bind("0.0.0.0:0").expect("bind sender");
+            sock.set_nonblocking(true).ok();
+
+            // 1) Create eph + send E1
+            let eph = Ephemeral::generate();
+            let our_pub = eph.public();
+            let mut e1 = [0u8; 1 + 32];
+            e1[0] = TAG_E1;
+            e1[1..].copy_from_slice(our_pub.as_bytes());
+            sock.send_to(&e1, &to).expect("send E1");
+
+            // 2) Wait for E2
+            let mut buf = vec![0u8; 4096];
+            let (_n, _peer) = loop {
+                match sock.recv_from(&mut buf) {
+                    Ok((n, p)) if n >= 1 + 32 && buf[0] == TAG_E2 => break (n, p),
+                    Ok((_n, _p)) => continue,
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                        continue;
+                    }
+                    Err(e) => panic!("recv E2: {e}"),
+                }
+            };
+            let mut srv_pub_bytes = [0u8; 32];
+            srv_pub_bytes.copy_from_slice(&buf[1..33]);
+            let srv_pub = XPublicKey::from(srv_pub_bytes);
+
+            // 3) Build session (client side)
+            let label = PeerLabel {
+                label: b"CONSENTv1".to_vec(),
+            };
+            let mut sess = Session::from_handshake(eph, &srv_pub, Some(&label));
+            println!("[session-send] handshake with {} complete", to);
+
+            // 4) Send sealed data frames
+            for i in 1..=packets {
+                let size = rand_range(min_size, max_size);
+                let mut payload = vec![0u8; size];
+                rand::rngs::OsRng.fill_bytes(&mut payload);
+
+                let ct = sess.seal(b"type=DATA", &payload);
+                let mut packet = Vec::with_capacity(1 + ct.len());
+                packet.push(TAG_D);
+                packet.extend_from_slice(&ct);
+
+                sock.send_to(&packet, &to).ok();
+                println!("[session-send] sent {i}/{packets} ({} bytes payload)", size);
+
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+
+            println!("[session-send] done.");
+        }
+
         // ===== Reputation =====
         Commands::Rep(args) => cmd_rep::run_rep(args).expect("rep command failed"),
     }
@@ -527,4 +971,25 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_millis() as u64
+}
+
+// === Session/Control wire tags used by both demos and wait-reply ===
+const TAG_E1: u8 = 0xE1;
+const TAG_E2: u8 = 0xE2;
+const TAG_D: u8 = 0xD0;
+
+// Control-plane AAD (must match listener)
+const AAD_CONTROL: &[u8] = b"type=CONTROL";
+
+fn rand_range(min: usize, max: usize) -> usize {
+    if max <= min {
+        return min;
+    }
+    let span = (max - min) as u64;
+    (min as u64 + (rand::random::<u64>() % (span + 1))) as usize
+}
+
+fn mean_interval_ms(rate_per_min: u32) -> u64 {
+    let r = rate_per_min.max(1) as f64;
+    (60_000.0 / r).round() as u64
 }

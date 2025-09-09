@@ -1,0 +1,10 @@
+[package]
+name = "hsip-cover"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.39", features = ["rt-multi-thread", "macros", "net", "time"] }
+rand = "0.8"
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1.0"

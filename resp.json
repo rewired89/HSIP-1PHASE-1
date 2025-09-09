@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "request_hash_hex": "47216c5d48ba829ba415646774f1d68b79bed6c55a59f617e6dbfea10728d512",
+  "responder_peer_id": "IUX2P4RHXRRRTUUCI2LMH4S2UM",
+  "responder_pub_key_hex": "13361279aa690c874466983ffb0c821e9412dc546d0a32b04b356718e00d87af",
+  "decision": "deny",
+  "ttl_ms": 60000,
+  "ts_ms": 1755638001193,
+  "sig_hex": "fb8d55fd13464de99de71dfeb60e7457366833289647a3af38a4a2a3f5c8e35ce2058d6cc29cf75d263badcdee24714a1f37b408a4b9d6cf941ea4df5873dc05"
+}

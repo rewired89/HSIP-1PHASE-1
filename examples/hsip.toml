@@ -1,0 +1,17 @@
+[policy]
+enforce_rep   = true
+rep_threshold = -6
+auto_respond  = "allow"
+auto_ttl_ms   = 60000
+sealed_only   = true
+allow_peers   = ["<YOUR_PEER_ID>"]   # replace in local copy
+
+[guard]
+enable              = true
+pin_minutes         = 20
+max_e1_per_5s       = 20
+max_badsig_per_min  = 5
+max_control_per_min = 120
+max_frame_size      = 4096
+padding_profiles    = []
+cache_allow_ms      = 300000

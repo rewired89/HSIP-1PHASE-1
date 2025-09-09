@@ -1,0 +1,18 @@
+[policy]
+enforce_rep   = true
+rep_threshold = -6
+sealed_only   = true
+auto_respond  = "allow"
+auto_ttl_ms   = 60000
+allow_peers   = ["<YOUR_PEER_ID>"]  # optional allow-list
+
+[guard]
+enable         = true
+max_ctrl_per_min = 120
+max_e1_per_5s    = 20
+max_bad_sig_per_min = 5
+pin_minutes    = 20
+pad_to_sizes   = []       # or e.g. [256, 512, 1024] if you want size padding
+
+[cache]
+allow_ms = 300000  # 5 min “no prompt” window after first allow

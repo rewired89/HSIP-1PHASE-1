@@ -1,30 +1,21 @@
 # Rust
-/target
-**/*.rs.bk
+target/
+**/target/
+Cargo.lock
 
-# OS/editor junk
+# Local Windows build dirs you used
+hsip_target*/
+hsip_release/
+dist/
+
+# Editors/OS
+.vscode/
+.idea/
 .DS_Store
-Thumbs.db
-*.swp
 
-# Local artifacts (don’t leak)
-*.log
-*.json
-reputation.log
-req.json
-resp.json
-
-# If you ever store keys/config locally under the repo, ignore them:
-keystore/
-keys/
-
-# Local consent artifacts
-consent_request.json
-consent_response.json
-payload.txt
-
-# Local patches
-stash_wip_before_rebase.patch
-
-# build artifacts
-/dist/
+# User secrets (do NOT commit)
+*.enc.json
+*.id.json
+*.pem
+*.key
+*.der
