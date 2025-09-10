@@ -2,10 +2,10 @@
   "version": 1,
   "requester_peer_id": "6LFWTXJKXEIXBMAURU4XXWYMSN",
   "requester_pub_key_hex": "c1c3cd3470b0a09efdc9722f1b884934da790d7dee57cfd30a9921686de6bb11",
-  "content_cid_hex": "9451c2931c6d768eaa476eafaafa635bb2a37aae0a22d856bb081c26708c5206",
+  "content_cid_hex": "141808ceed5c379b3bc07a369447b2965bd5f58696e96a17ebd9a759c20bb299",
   "purpose": "demo",
   "expires_ms": 60000,
-  "ts_ms": 1757461923820,
-  "nonce_hex": "48667710389cd5e7883ff12b",
-  "sig_hex": "6bb8547a772bb2662ba80faca304c3ddd9f7d920ed293aa2eeadfa29edcf67c1d421655e3d95d58433f4652cf1b2fe7f446719b260a35be0258dbf403027fe06"
+  "ts_ms": 1757474458412,
+  "nonce_hex": "10f489351bd09ded9c7331e0",
+  "sig_hex": "8439a14f44618d47725c2a350d14a4c70a60870012df59cc9d21a3347e92a7ee53df34a6bca37c3f3580325a3b868a51d764a8d5205121a3e6535f6def856a0f"
 }
