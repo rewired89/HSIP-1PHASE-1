@@ -1,11 +1,12 @@
 [workspace]
 members = [
     "crates/hsip-core",
+    "crates/hsip-session",
     "crates/hsip-net",
     "crates/hsip-reputation",
     "crates/hsip-cli",
-    "crates/hsip-cover", 
-    "crates/hsip-session",
+]
+exclude = [
+    "crates/hsip-session/fuzz"
 ]
 resolver = "2"
-

@@ -1,0 +1,23 @@
+[package]
+name = "hsip-session-fuzz"
+version = "0.1.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+hsip-session = { path = ".." }
+
+[[bin]]
+name = "hsip_session_frame"
+path = "fuzz_targets/hsip_session_frame.rs"
+test = false
+doc = false
+
+# Make this directory a workspace root so Cargo won't climb to HSIP/
+[workspace]
+members = []
+resolver = "2"

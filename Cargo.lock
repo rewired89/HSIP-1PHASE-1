@@ -543,16 +543,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hsip-cover"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "rand",
- "tokio",
-]
-
-[[package]]
 name = "hsip-net"
 version = "0.1.2"
 dependencies = [
