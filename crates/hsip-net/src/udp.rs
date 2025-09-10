@@ -1,5 +1,3 @@
-// crates/hsip-net/src/udp.rs
-
 use anyhow::{anyhow, Result};
 use std::net::UdpSocket;
 use std::time::Duration;
@@ -14,10 +12,34 @@ use x25519_dalek::PublicKey as XPublicKey;
 
 use crate::guard::{Guard, GuardConfig as GuardCfg};
 
+// Reputation store
+use hsip_reputation::store::{DecisionType, Store};
+
+/// Resolve homedir for reputation log
+fn rep_log_path() -> std::path::PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".hsip")
+        .join("reputation.log")
+}
+
+/// Read env flags for enforcement and threshold
+fn policy_from_env() -> (bool, i32) {
+    let enforce = std::env::var("HSIP_ENFORCE_REP")
+        .ok()
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let threshold = std::env::var("HSIP_REP_THRESHOLD")
+        .ok()
+        .and_then(|s| s.parse::<i32>().ok())
+        .unwrap_or(-6);
+    (enforce, threshold)
+}
+
 // === mini hello module exposed to hsip-cli ===
 pub mod hello {
     use super::*;
-    use crate::hello::build_hello; // FIX: internal module path
+    use crate::hello::build_hello; // internal module path
 
     pub fn listen_hello(addr: &str) -> Result<()> {
         let sock = UdpSocket::bind(addr).map_err(|e| anyhow!("bind hello listen: {e}"))?;
@@ -54,6 +76,16 @@ pub fn listen_control(addr: &str) -> Result<()> {
     let gcfg = GuardCfg { enable: true, ..Default::default() };
     let mut guard = Guard::new(gcfg);
     guard.debug_banner();
+
+    // Policy flags
+    let (enforce_rep, threshold) = policy_from_env();
+    let log_path = rep_log_path();
+    eprintln!(
+        "[PolicyDebug] reputation enforcement {} | threshold={} | log='{}'",
+        if enforce_rep { "ON" } else { "OFF" },
+        threshold,
+        log_path.display()
+    );
 
     // Bind UDP
     let sock = UdpSocket::bind(addr).map_err(|e| anyhow!("bind {addr}: {e}"))?;
@@ -122,7 +154,7 @@ pub fn listen_control(addr: &str) -> Result<()> {
                                 req.purpose, req.expires_ms
                             );
 
-                            // verify signature
+                            // verify signature first
                             let mut decision = "allow".to_string();
                             if let Err(err) = verify_request(&req) {
                                 eprintln!("[Policy] invalid request signature → deny (err={err})");
@@ -130,12 +162,53 @@ pub fn listen_control(addr: &str) -> Result<()> {
                                 decision = "deny".into();
                             }
 
-                            // If allowed, pin & cache
-                            let requester = req.requester_peer_id.clone();
-                            if decision == "allow" { guard.pin(&requester); }
+                            // Reputation enforcement (if enabled and we still allow)
+                            if enforce_rep && decision == "allow" {
+                                let requester = req.requester_peer_id.clone();
+                                if requester.is_empty() {
+                                    eprintln!("[Policy] enforcement ON but requester peer missing; keeping 'allow'");
+                                } else {
+                                    let store = Store::open(&log_path)
+                                        .unwrap_or_else(|_| {
+                                            // ensure parent exists then create empty store
+                                            if let Some(parent) = log_path.parent() {
+                                                std::fs::create_dir_all(parent).ok();
+                                            }
+                                            Store::open(&log_path).expect("open rep store")
+                                        });
+                                    let score = store.compute_score(&requester).unwrap_or(0);
+                                    eprintln!("[PolicyDebug] requester '{}' score={} threshold={}", requester, score, threshold);
+                                    if score < threshold {
+                                        eprintln!("[Policy] {} score {} < {} → auto-deny", requester, score, threshold);
+                                        decision = "deny".to_string();
 
-                            // Build auto response
-                            let resp = build_auto_response(&sk, &vk, &req)?;
+                                        // append a MISBEHAVIOR entry as a signal (optional)
+                                        let (my_sk, my_vk) = load_keypair().map_err(|e| anyhow!(e))?;
+                                        let my_peer = peer_id_from_pubkey(&my_vk);
+                                        let _ = store.append(
+                                            &my_sk,
+                                            &my_peer,
+                                            &requester,
+                                            DecisionType::MISBEHAVIOR,
+                                            1,
+                                            "POLICY_THRESHOLD",
+                                            "Auto-deny due to low reputation score",
+                                            vec![],
+                                            Some("7d".to_string()),
+                                        );
+                                    } else {
+                                        eprintln!("[Policy] {} score {} ≥ {} → allow", requester, score, threshold);
+                                    }
+                                }
+                            }
+
+                            // Pin allowed requester for a short while (rate-limit help)
+                            if decision == "allow" {
+                                guard.pin(&req.requester_peer_id);
+                            }
+
+                            // Build auto response (now uses decision computed above)
+                            let resp = build_auto_response_with_decision(&sk, &vk, &req, decision)?;
 
                             let payload = serde_json::to_vec(&resp)?;
                             let ct = sess_tx.seal(AAD_CONTROL, &payload);
@@ -227,11 +300,12 @@ fn is_win_connreset(e: &std::io::Error) -> bool {
     if let Some(code) = e.raw_os_error() { code == 10054 } else { false }
 }
 
-/// Build an auto CONSENT_RESPONSE bound to the request hash.
-fn build_auto_response(
+/// Build a CONSENT_RESPONSE bound to the request hash, with provided decision.
+fn build_auto_response_with_decision(
     sk: &SigningKey,
     vk: &VerifyingKey,
     req: &ConsentRequest,
+    decision: String,
 ) -> Result<ConsentResponse> {
     use sha2::{Digest, Sha256};
 
@@ -241,8 +315,7 @@ fn build_auto_response(
     h.update(&req_bytes);
     let request_hash_hex = hex::encode(h.finalize());
 
-    // choose decision and ttl
-    let decision = "allow".to_string();
+    // ttl
     let ttl_ms = 60_000u64;
 
     // response struct
