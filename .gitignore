@@ -19,3 +19,10 @@ dist/
 *.pem
 *.key
 *.der
+
+!crates/hsip-session/
+!crates/hsip-session/**
+
+!crates/
+!crates/hsip-session/
+!crates/hsip-session/**
