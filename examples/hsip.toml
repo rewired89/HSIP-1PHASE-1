@@ -1,6 +1,7 @@
 [policy]
 enforce_rep = true
-rep_threshold = -6
+rep_threshold = 1
+require_valid_sig = true
 
 [guard]
 enable = true
