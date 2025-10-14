@@ -1,7 +1,7 @@
+use hsip_core::identity::generate_keypair;
+use hsip_net::udp::hello::{listen_hello, send_hello};
 use std::thread;
 use std::time::Duration;
-use hsip_net::udp::hello::{listen_hello, send_hello};
-use hsip_core::identity::generate_keypair;
 
 #[test]
 fn hello_roundtrip_local() {
@@ -21,7 +21,9 @@ fn hello_roundtrip_local() {
     // send one HELLO
     let (sk, vk) = generate_keypair();
     let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
 
     // this should not error; the test passes if we don’t panic
     let _ = send_hello(&sk, &vk, &addr, now);

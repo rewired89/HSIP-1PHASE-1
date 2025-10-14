@@ -3,7 +3,8 @@
 //! - RAM-only keys, Zeroize on drop
 //! - Nonce: 96-bit = [4B random prefix | 8B counter]
 //! - Rekey via new shared secret
-//! Transport-agnostic: you exchange eph pubkeys + signatures however you like.
+//! - Handshake:
+//!   Transport-agnostic: you exchange eph pubkeys + signatures however you like.
 
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
@@ -111,7 +112,11 @@ impl Session {
     }
 
     /// Build a session by CONSUMING our ephemeral secret against their pubkey.
-    pub fn from_handshake(our_eph: Ephemeral, their_pub: &PublicKey, label: Option<&PeerLabel>) -> Self {
+    pub fn from_handshake(
+        our_eph: Ephemeral,
+        their_pub: &PublicKey,
+        label: Option<&PeerLabel>,
+    ) -> Self {
         let shared = our_eph.into_shared(their_pub);
         Self::from_shared_secret(shared, label)
     }
@@ -134,7 +139,13 @@ impl Session {
 
         let ct = self
             .cipher
-            .encrypt(nonce, Payload { msg: plaintext, aad })
+            .encrypt(
+                nonce,
+                Payload {
+                    msg: plaintext,
+                    aad,
+                },
+            )
             .expect("encrypt");
         out.extend_from_slice(&ct);
 
@@ -206,7 +217,9 @@ mod tests {
 
     #[test]
     fn seal_open_roundtrip() {
-        let label = PeerLabel { label: b"CONSENTv1".to_vec() };
+        let label = PeerLabel {
+            label: b"CONSENTv1".to_vec(),
+        };
         let (_c_pub, _s_pub, mut c_sess, mut s_sess) = demo_pair(Some(&label));
 
         let aad = b"type=CONSENT_REQUEST";
@@ -219,7 +232,9 @@ mod tests {
 
     #[test]
     fn rejects_replay() {
-        let label = PeerLabel { label: b"CONSENTv1".to_vec() };
+        let label = PeerLabel {
+            label: b"CONSENTv1".to_vec(),
+        };
         let (_c_pub, _s_pub, mut c_sess, mut s_sess) = demo_pair(Some(&label));
 
         let aad = b"type=CONSENT_RESPONSE";
@@ -237,7 +252,9 @@ mod tests {
 
     #[test]
     fn rekey_works() {
-        let label = PeerLabel { label: b"CONSENTv1".to_vec() };
+        let label = PeerLabel {
+            label: b"CONSENTv1".to_vec(),
+        };
         let (_c_pub, _s_pub, mut c_sess, mut s_sess) = demo_pair(Some(&label));
 
         // fresh ephemerals

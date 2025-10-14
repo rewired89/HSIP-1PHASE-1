@@ -7,8 +7,8 @@ pub const CIPHERSUITE: &[u8] = b"CHACHA20-POLY1305";
 
 // Packet role labels
 pub const AAD_LABEL_HELLO: &[u8] = b"HELLO";
-pub const AAD_LABEL_E1: &[u8]    = b"CONSENT_E1";
-pub const AAD_LABEL_E2: &[u8]    = b"CONSENT_E2";
+pub const AAD_LABEL_E1: &[u8] = b"CONSENT_E1";
+pub const AAD_LABEL_E2: &[u8] = b"CONSENT_E2";
 
 // Build canonical AAD = PROTOCOL_ID | VERSION_LE | CIPHERSUITE (fixed 18 bytes) | LABEL (fixed 12 bytes)
 pub fn aad_for(label: &[u8]) -> [u8; 4 + 2 + 18 + 12] {

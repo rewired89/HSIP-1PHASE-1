@@ -41,16 +41,28 @@ struct WindowCounter {
 }
 impl WindowCounter {
     fn new_per(duration: Duration, limit: u32) -> Self {
-        Self { times: VecDeque::new(), window: duration, limit }
+        Self {
+            times: VecDeque::new(),
+            window: duration,
+            limit,
+        }
     }
     fn hit(&mut self) -> Result<(), String> {
         let now = Instant::now();
         while let Some(&t) = self.times.front() {
-            if now.duration_since(t) > self.window { self.times.pop_front(); } else { break; }
+            if now.duration_since(t) > self.window {
+                self.times.pop_front();
+            } else {
+                break;
+            }
         }
         self.times.push_back(now);
         if (self.times.len() as u32) > self.limit {
-            Err(format!("rate exceeded: {} in {:?}", self.times.len(), self.window))
+            Err(format!(
+                "rate exceeded: {} in {:?}",
+                self.times.len(),
+                self.window
+            ))
         } else {
             Ok(())
         }
@@ -96,7 +108,9 @@ impl Guard {
         );
     }
 
-    pub fn cfg(&self) -> &GuardCfg { &self.cfg }
+    pub fn cfg(&self) -> &GuardCfg {
+        &self.cfg
+    }
 
     /// Back-compat: udp.rs sometimes calls `on_control_frame(ip, len)`.
     pub fn on_control_frame(&mut self, ip: IpAddr, _len: usize) -> Result<(), String> {
@@ -104,7 +118,9 @@ impl Guard {
     }
 
     pub fn on_control(&mut self, ip: IpAddr) -> Result<(), String> {
-        if !self.cfg.enable { return Ok(()); }
+        if !self.cfg.enable {
+            return Ok(());
+        }
         let entry = self.ctrl_per_min.entry(ip).or_insert_with(|| {
             WindowCounter::new_per(Duration::from_secs(60), self.cfg.max_ctrl_per_min)
         });
@@ -112,7 +128,9 @@ impl Guard {
     }
 
     pub fn on_e1(&mut self, ip: IpAddr) -> Result<(), String> {
-        if !self.cfg.enable { return Ok(()); }
+        if !self.cfg.enable {
+            return Ok(());
+        }
         let entry = self.e1_per_5s.entry(ip).or_insert_with(|| {
             WindowCounter::new_per(Duration::from_secs(5), self.cfg.max_e1_per_5s)
         });
@@ -120,7 +138,9 @@ impl Guard {
     }
 
     pub fn on_bad_sig(&mut self, ip: IpAddr) -> Result<(), String> {
-        if !self.cfg.enable { return Ok(()); }
+        if !self.cfg.enable {
+            return Ok(());
+        }
         let entry = self.bad_sig_per_min.entry(ip).or_insert_with(|| {
             WindowCounter::new_per(Duration::from_secs(60), self.cfg.max_bad_sig_per_min)
         });
@@ -129,7 +149,9 @@ impl Guard {
 
     /// Back-compat: udp.rs calls `pin(&peer_id)` when a request is allowed.
     pub fn pin(&mut self, peer_id: &str) {
-        if !self.cfg.enable { return; }
+        if !self.cfg.enable {
+            return;
+        }
         let until = Instant::now() + Duration::from_secs(self.cfg.pin_minutes * 60);
         self.pinned.insert(peer_id.to_string());
         self.pin_until.insert(peer_id.to_string(), until);
@@ -138,7 +160,9 @@ impl Guard {
 
     /// Back-compat: udp.rs calls `is_pinned(&peer_id)`.
     pub fn is_pinned(&mut self, peer_id: &str) -> bool {
-        if !self.cfg.enable { return false; }
+        if !self.cfg.enable {
+            return false;
+        }
         // GC expired
         if let Some(&until) = self.pin_until.get(peer_id) {
             if Instant::now() >= until {

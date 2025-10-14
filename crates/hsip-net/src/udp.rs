@@ -5,8 +5,8 @@ use std::net::UdpSocket;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use ed25519_dalek::{SigningKey, VerifyingKey};
 use ed25519_dalek::Signer; // for sk.sign(...)
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use hsip_core::consent::{verify_request, ConsentRequest, ConsentResponse};
 use hsip_core::identity::{peer_id_from_pubkey, vk_to_hex};
 use hsip_core::keystore::load_keypair;
@@ -29,7 +29,12 @@ pub mod hello {
         let mut buf = [0u8; 65535];
         loop {
             let (n, p) = sock.recv_from(&mut buf)?;
-            let s = String::from_utf8_lossy(&buf[..n]);
+            if n < 6 || !hsip_core::wire::prefix::check_prefix(&buf[..n]) {
+                // ignore non-HSIP packets
+                continue;
+            }
+            let raw = &buf[6..n]; // strip 6-byte HSIP prefix
+            let s = String::from_utf8_lossy(raw);
             println!("[hello] from {p} {s}");
         }
     }
@@ -38,7 +43,13 @@ pub mod hello {
         let hello = build_hello(sk, vk, now_ms);
         let json = serde_json::to_vec(&hello)?;
         let sock = UdpSocket::bind("0.0.0.0:0")?;
-        sock.send_to(&json, to)?;
+
+        // add HSIP prefix
+        let mut pkt = Vec::with_capacity(6 + json.len());
+        hsip_core::wire::prefix::write_prefix(&mut pkt);
+        pkt.extend_from_slice(&json);
+
+        sock.send_to(&pkt, to)?;
         Ok(())
     }
 }
@@ -46,7 +57,7 @@ pub mod hello {
 // === Wire tags ===
 const TAG_E1: u8 = 0xE1;
 const TAG_E2: u8 = 0xE2;
-const TAG_D:  u8 = 0xD0;
+const TAG_D: u8 = 0xD0;
 
 // Control-plane AAD
 const AAD_CONTROL: &[u8] = b"type=CONTROL";
@@ -70,7 +81,11 @@ impl PolicyCfg {
             .unwrap_or_else(|| std::path::PathBuf::from("."))
             .join(".hsip")
             .join("reputation.log");
-        Self { enforce, threshold, log_path }
+        Self {
+            enforce,
+            threshold,
+            log_path,
+        }
     }
 
     fn print_banner(&self) {
@@ -90,7 +105,10 @@ impl PolicyCfg {
 // == Public entrypoints used by CLI ==
 pub fn listen_control(addr: &str) -> Result<()> {
     // Guard config & banner
-    let gcfg = GuardCfg { enable: true, ..Default::default() };
+    let gcfg = GuardCfg {
+        enable: true,
+        ..Default::default()
+    };
     let mut guard = Guard::new(gcfg);
     guard.debug_banner();
 
@@ -107,40 +125,61 @@ pub fn listen_control(addr: &str) -> Result<()> {
     let mut buf = [0u8; 65535];
     let (_n, peer) = loop {
         match sock.recv_from(&mut buf) {
-            Ok((n, p)) if n >= 1 + 32 && buf[0] == TAG_E1 => {
-                guard.on_e1(p.ip()).ok();
-                break (n, p)
+            // Valid E1 candidate: length check and first tag byte
+            Ok((n, p))
+                if n > 32
+                    && hsip_core::wire::prefix::check_prefix(&buf[..n])
+                    && buf[0] == TAG_E1 =>
+            {
+                let _ = guard.on_e1(p.ip());
+                break (n, p);
             }
-            Ok((_n, _p)) => continue,
-            Err(ref e) if is_win_connreset(e) => { continue; }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(Duration::from_millis(5));
+
+            // Not E1 or too short — keep listening
+            Ok(_) => {
                 continue;
             }
-            Err(e) => return Err(anyhow!("recv E1: {e}")),
+            // Non-blocking socket: yield briefly
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                continue;
+            }
+            // Other I/O errors: skip and continue listening
+            Err(_) => {
+                continue;
+            }
         }
     };
 
-    // Peer eph pub
+    // Strip HSIP prefix (6 bytes) before extracting E1 body
+    let raw = &buf[6.._n];
+
+    // Extract peer ephemeral X25519 public key (skip TAG_E1 at raw[0])
     let mut peer_pub_bytes = [0u8; 32];
-    peer_pub_bytes.copy_from_slice(&buf[1..33]);
+    peer_pub_bytes.copy_from_slice(&raw[1..33]); // raw[0] == TAG_E1
     let peer_pub = XPublicKey::from(peer_pub_bytes);
 
     // Our eph + shared
     let eph = Ephemeral::generate();
     let our_pub = eph.public();
-    let label = PeerLabel { label: b"CONSENTv1".to_vec() };
+    let label = PeerLabel {
+        label: b"CONSENTv1".to_vec(),
+    };
     let shared = eph.into_shared(&peer_pub);
 
     // Two sessions (rx/tx)
-    let mut sess_rx = Session::from_shared_secret(shared, Some(&label));
-    let mut sess_tx = Session::from_shared_secret(shared, Some(&label));
+    let mut sess = Session::from_shared_secret(shared, Some(&label));
 
-    // Send E2
+    // Send E2 (+ HSIP prefix)
     let mut e2 = [0u8; 1 + 32];
     e2[0] = TAG_E2;
     e2[1..].copy_from_slice(our_pub.as_bytes());
-    sock.send_to(&e2, peer).ok();
+
+    let mut pkt = Vec::with_capacity(6 + e2.len());
+    hsip_core::wire::prefix::write_prefix(&mut pkt);
+    pkt.extend_from_slice(&e2);
+
+    sock.send_to(&pkt, peer).ok();
     println!("[control-listen] handshake complete with {peer}");
 
     // Load identity (for auto-respond)
@@ -153,13 +192,18 @@ pub fn listen_control(addr: &str) -> Result<()> {
     let mut rbuf = [0u8; 65535];
     loop {
         match sock.recv_from(&mut rbuf) {
-            Ok((n, p)) if n >= 1 && rbuf[0] == TAG_D => {
+            Ok((n, p))
+                if n >= 7
+                    && hsip_core::wire::prefix::check_prefix(&rbuf[..n])
+                    && rbuf[6] == TAG_D =>
+            {
                 if let Err(reason) = guard.on_control_frame(p.ip(), n) {
                     eprintln!("[guard] drop control from {p}: {reason}");
                     continue;
                 }
-                let ct = &rbuf[1..n];
-                match sess_rx.open(AAD_CONTROL, ct) {
+                let raw = &rbuf[6..n]; // strip 6-byte HSIP prefix
+                let ct = &raw[1..]; // skip TAG_D
+                match sess.open(AAD_CONTROL, ct) {
                     Ok(pt) => {
                         // Try parse as request, else as response, else raw JSON
                         if let Ok(req) = serde_json::from_slice::<ConsentRequest>(&pt) {
@@ -180,14 +224,20 @@ pub fn listen_control(addr: &str) -> Result<()> {
                             if decision == "allow" && pcfg.enforce {
                                 let requester = req.requester_peer_id.clone();
                                 if requester.is_empty() {
-                                    eprintln!("[Policy] enforcement ON but requester peer missing → deny");
+                                    eprintln!(
+                                        "[Policy] enforcement ON but requester peer missing → deny"
+                                    );
                                     decision = "deny".into();
                                 } else {
                                     // Open store once
                                     if rep_store.is_none() {
                                         rep_store = Some(
-                                            Store::open(&pcfg.log_path)
-                                                .with_context(|| format!("open rep log '{}'", pcfg.log_path.display()))?
+                                            Store::open(&pcfg.log_path).with_context(|| {
+                                                format!(
+                                                    "open rep log '{}'",
+                                                    pcfg.log_path.display()
+                                                )
+                                            })?,
                                         );
                                     }
                                     let store = rep_store.as_ref().unwrap();
@@ -214,14 +264,18 @@ pub fn listen_control(addr: &str) -> Result<()> {
                             // 3) Guard pin on allow
                             if decision == "allow" {
                                 let requester = req.requester_peer_id.clone();
-                                if !requester.is_empty() { guard.pin(&requester); }
+                                if !requester.is_empty() {
+                                    guard.pin(&requester);
+                                }
                             }
 
                             // 4) Build & send response with the final decision
-                            let resp = build_response_with_decision(&sk, &vk, &req, decision, 60_000)?;
+                            let resp =
+                                build_response_with_decision(&sk, &vk, &req, decision, 60_000)?;
                             let payload = serde_json::to_vec(&resp)?;
-                            let ct = sess_tx.seal(AAD_CONTROL, &payload);
-                            let mut pkt = Vec::with_capacity(1 + ct.len());
+                            let ct = sess.seal(AAD_CONTROL, &payload);
+                            let mut pkt = Vec::with_capacity(6 + 1 + ct.len());
+                            hsip_core::wire::prefix::write_prefix(&mut pkt);
                             pkt.push(TAG_D);
                             pkt.extend_from_slice(&ct);
                             sock.send_to(&pkt, p).ok();
@@ -243,7 +297,9 @@ pub fn listen_control(addr: &str) -> Result<()> {
                 }
             }
             Ok((_n, _p)) => {}
-            Err(ref e) if is_win_connreset(e) => { continue; }
+            Err(ref e) if is_win_connreset(e) => {
+                continue;
+            }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 std::thread::sleep(Duration::from_millis(5));
             }
@@ -268,7 +324,8 @@ pub fn send_consent_response(to: &str, resp: &ConsentResponse) -> Result<()> {
 
 fn sealed_send(to: &str, payload: &[u8]) -> Result<()> {
     let sock = UdpSocket::bind("0.0.0.0:0")?;
-    sock.set_read_timeout(Some(Duration::from_millis(2000))).ok();
+    sock.set_read_timeout(Some(Duration::from_millis(2000)))
+        .ok();
 
     // E1
     let eph = Ephemeral::generate();
@@ -280,7 +337,9 @@ fn sealed_send(to: &str, payload: &[u8]) -> Result<()> {
 
     // E2
     let mut buf = [0u8; 64];
-    let (n, _peer) = sock.recv_from(&mut buf).map_err(|e| anyhow!("recv E2: {e}"))?;
+    let (n, _peer) = sock
+        .recv_from(&mut buf)
+        .map_err(|e| anyhow!("recv E2: {e}"))?;
     if n < 1 + 32 || buf[0] != TAG_E2 {
         return Err(anyhow!("unexpected handshake response"));
     }
@@ -289,13 +348,16 @@ fn sealed_send(to: &str, payload: &[u8]) -> Result<()> {
     let srv_pub = XPublicKey::from(srv_pub_bytes);
 
     // Session
-    let label = PeerLabel { label: b"CONSENTv1".to_vec() };
+    let label = PeerLabel {
+        label: b"CONSENTv1".to_vec(),
+    };
     let shared = eph.into_shared(&srv_pub);
     let mut sess = Session::from_shared_secret(shared, Some(&label));
 
     // Seal & send
     let ct = sess.seal(AAD_CONTROL, payload);
-    let mut pkt = Vec::with_capacity(1 + ct.len());
+    let mut pkt = Vec::with_capacity(6 + 1 + ct.len());
+    hsip_core::wire::prefix::write_prefix(&mut pkt);
     pkt.push(TAG_D);
     pkt.extend_from_slice(&ct);
     sock.send_to(&pkt, to).ok();
@@ -305,7 +367,11 @@ fn sealed_send(to: &str, payload: &[u8]) -> Result<()> {
 
 fn is_win_connreset(e: &std::io::Error) -> bool {
     // Windows UDP may raise 10054 spuriously. Treat as ignorable.
-    if let Some(code) = e.raw_os_error() { code == 10054 } else { false }
+    if let Some(code) = e.raw_os_error() {
+        code == 10054
+    } else {
+        false
+    }
 }
 
 /// Build a CONSENT_RESPONSE bound to request hash with the chosen decision/ttl.
@@ -337,7 +403,8 @@ fn build_response_with_decision(
     };
 
     // sign (payload = canonical json of resp without signature)
-    let mut tmp = resp.clone(); tmp.sig_hex.clear();
+    let mut tmp = resp.clone();
+    tmp.sig_hex.clear();
     let payload = serde_json::to_string(&tmp)?;
     let sig = sk.sign(payload.as_bytes());
     resp.sig_hex = hex::encode(sig.to_bytes());
@@ -346,5 +413,8 @@ fn build_response_with_decision(
 
 fn now_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
 }
