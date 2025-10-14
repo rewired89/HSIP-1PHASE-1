@@ -15,8 +15,8 @@ use hsip_core::identity::{generate_keypair, peer_id_from_pubkey, sk_to_hex, vk_t
 use hsip_core::keystore::{load_keypair, save_keypair};
 
 use hsip_net::hello::build_hello;
-use hsip_net::udp::{listen_control, send_consent_request, send_consent_response};
 use hsip_net::udp::hello::{listen_hello, send_hello};
+use hsip_net::udp::{listen_control, send_consent_request, send_consent_response};
 
 // --- encrypted export/import deps ---
 use argon2::password_hash::{PasswordHash, SaltString};
@@ -37,8 +37,8 @@ use std::thread;
 use std::time::Duration;
 
 // --- session demo + wait-reply path (sealed frames over UDP) ---
-use std::net::UdpSocket as StdUdpSocket;
 use hsip_session::{Ephemeral, PeerLabel, Session};
+use std::net::UdpSocket as StdUdpSocket;
 use x25519_dalek::PublicKey as XPublicKey;
 
 mod cmd_rep;
@@ -494,8 +494,8 @@ fn main() {
                 );
                 let to_addr = addr.clone();
                 Some(thread::spawn(move || {
-                    let sock = UdpSocket::bind("0.0.0.0:0")
-                        .expect("bind ephemeral UDP socket for cover");
+                    let sock =
+                        UdpSocket::bind("0.0.0.0:0").expect("bind ephemeral UDP socket for cover");
                     let mut buf = vec![0u8; cover_max_size.max(cover_min_size)];
                     let mut sent: u64 = 0;
 
@@ -517,10 +517,12 @@ fn main() {
 
                         OsRng.fill_bytes(&mut buf[..size]);
 
-                        let _ = sock.send_to(&buf[..size], &to_addr);
+                        let Ok((_n, _peer)) = sock.recv_from(&mut buf) else {
+                            return;
+                        };
 
                         sent += 1;
-                        if cover_verbose_every > 0 && sent % cover_verbose_every == 0 {
+                        if cover_verbose_every > 0 && sent.is_multiple_of(cover_verbose_every) {
                             println!(
                                 "(cover) sent {} decoys (last={} bytes) → {}",
                                 sent, size, to_addr
@@ -529,8 +531,11 @@ fn main() {
 
                         // sleep ≈ mean ± jitter (uniform)
                         let jit = cover_jitter_ms as i64;
-                        let delta =
-                            if jit == 0 { 0 } else { rand::thread_rng().gen_range(-jit..=jit) };
+                        let delta = if jit == 0 {
+                            0
+                        } else {
+                            rand::thread_rng().gen_range(-jit..=jit)
+                        };
                         let sleep_ms = ((mean_ms as i64) + delta).max(0) as u64;
                         thread::sleep(Duration::from_millis(sleep_ms));
                     }
@@ -552,8 +557,7 @@ fn main() {
             wait_timeout_ms,
         } => {
             let bytes = std::fs::read(&file).expect("read request json");
-            let req: ConsentRequest =
-                serde_json::from_slice(&bytes).expect("parse request json");
+            let req: ConsentRequest = serde_json::from_slice(&bytes).expect("parse request json");
 
             if !wait_reply {
                 // old path
@@ -569,10 +573,8 @@ fn main() {
             let payload = serde_json::to_vec(&req).expect("encode req");
 
             let sock = StdUdpSocket::bind("0.0.0.0:0").expect("bind sender");
-            sock.set_read_timeout(Some(std::time::Duration::from_millis(
-                wait_timeout_ms,
-            ))) // wait for reply
-            .expect("set timeout");
+            sock.set_read_timeout(Some(std::time::Duration::from_millis(wait_timeout_ms))) // wait for reply
+                .expect("set timeout");
 
             // 1) E1
             let eph = Ephemeral::generate();
@@ -584,7 +586,7 @@ fn main() {
 
             // 2) E2
             let mut buf = [0u8; 64];
-            let (n, peer) = sock.recv_from(&mut buf).expect("recv E2");
+            let (n, _peer) = sock.recv_from(&mut buf).expect("recv");
             if n < 1 + 32 || buf[0] != TAG_E2 {
                 panic!("unexpected handshake response");
             }
@@ -787,7 +789,7 @@ fn main() {
             let mut buf = vec![0u8; 4096];
             let (_n, peer) = loop {
                 match sock.recv_from(&mut buf) {
-                    Ok((n, p)) if n >= 1 + 32 && buf[0] == TAG_E1 => break (n, p),
+                    Ok((n, p)) if n > 32 && buf[0] == TAG_E1 => break (n, p),
                     Ok((_n, _p)) => continue,
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         std::thread::sleep(std::time::Duration::from_millis(5));
@@ -850,7 +852,7 @@ fn main() {
                         let _ = sock_tx.send_to(&packet, to_addr);
 
                         sent += 1;
-                        if verbose_every > 0 && sent % verbose_every == 0 {
+                        if verbose_every > 0 && sent.is_multiple_of(verbose_every) {
                             println!(
                                 "(cover) sent {} decoys (last={} bytes) → {}",
                                 sent, size, to_addr
@@ -859,8 +861,11 @@ fn main() {
 
                         // sleep ≈ mean ± jitter
                         let jit_i = jit as i64;
-                        let delta =
-                            if jit_i == 0 { 0 } else { rand::thread_rng().gen_range(-jit_i..=jit_i) };
+                        let delta = if jit_i == 0 {
+                            0
+                        } else {
+                            rand::thread_rng().gen_range(-jit_i..=jit_i)
+                        };
                         let sleep_ms = ((mean as i64) + delta).max(0) as u64;
                         std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
                     }
@@ -921,7 +926,7 @@ fn main() {
             let mut buf = vec![0u8; 4096];
             let (_n, _peer) = loop {
                 match sock.recv_from(&mut buf) {
-                    Ok((n, p)) if n >= 1 + 32 && buf[0] == TAG_E2 => break (n, p),
+                    Ok((n, p)) if n > 32 && buf[0] == TAG_E2 => break (n, p),
                     Ok((_n, _p)) => continue,
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         std::thread::sleep(std::time::Duration::from_millis(5));
