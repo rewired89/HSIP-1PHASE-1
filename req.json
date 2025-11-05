@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "requester_peer_id": "6LFWTXJKXEIXBMAURU4XXWYMSN",
-  "requester_pub_key_hex": "c1c3cd3470b0a09efdc9722f1b884934da790d7dee57cfd30a9921686de6bb11",
-  "content_cid_hex": "141808ceed5c379b3bc07a369447b2965bd5f58696e96a17ebd9a759c20bb299",
+  "requester_peer_id": "WMVWYHD43VQYWH7MLO4X45P6EF",
+  "requester_pub_key_hex": "32d3b5432fe68d881bded73e2024ae0de8a8ceb92b6ad230873bea0dc9b561d6",
+  "content_cid_hex": "2b5974a9767a33204c2d1583bb4b1ba70f24e2970cbc522073df001272525954",
   "purpose": "demo",
   "expires_ms": 60000,
-  "ts_ms": 1757475157232,
-  "nonce_hex": "ae41f32de69f1bd8104cc04b",
-  "sig_hex": "c67dde7a1296a1fad2ab349c0d93d55a7a54b97b6092ebfe5ad4cb229e0b40f9e804e23de01cf91aa90b9fce992157e71f4bc4ca55b92c62b821deb17f119e0b"
+  "ts_ms": 1762120655011,
+  "nonce_hex": "c02ceba02578c4724d172ad5",
+  "sig_hex": "bf570800c84903862cb0c9bc896a7d37b9908a20fd7881b0acb976d93e58c03f1c08ecf88f29af8f6d844d47c6677932ed6879a325dee27020f360693301a30a"
 }

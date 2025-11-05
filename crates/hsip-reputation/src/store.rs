@@ -1,8 +1,7 @@
 use std::fs::OpenOptions;
-use std::io::{BufRead, BufReader, Write};
-
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use fs2::FileExt; // for file locking (cross-platform)
@@ -57,11 +56,12 @@ fn to_canonical_json<T: Serialize>(v: &T) -> anyhow::Result<Vec<u8>> {
 }
 
 fn now_rfc3339() -> String {
+    // Avoid unwrap: clamp to 0 if system clock is before UNIX_EPOCH.
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_else(|_| Duration::from_secs(0))
         .as_secs();
-    format!("{}s", now)
+    format!("{now}s")
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +70,12 @@ pub struct Store {
 }
 
 impl Store {
+    /// Open (and create if missing) a reputation store file.
+    ///
+    /// Creates parent directories as needed. On Unix, sets mode `0o600`.
+    ///
+    /// # Errors
+    /// Returns an error if the file or its parent directory cannot be created or opened.
     pub fn open<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let p = path.as_ref();
         if let Some(dir) = p.parent() {
@@ -127,8 +133,7 @@ impl Store {
             DecisionType::TRUSTED => by_sev([4, 5, 6, 8], severity),
             DecisionType::VERIFIED_ID => by_sev([3, 4, 5, 6], severity),
             DecisionType::GOOD_BEHAVIOR => by_sev([1, 2, 3, 4], severity),
-            DecisionType::NOTE | DecisionType::APPEAL => 0,
-            DecisionType::REVERSAL => 0,
+            DecisionType::NOTE | DecisionType::APPEAL | DecisionType::REVERSAL => 0,
             DecisionType::SPAM => by_sev([-2, -4, -5, -6], severity),
             DecisionType::MALFORMED => by_sev([-1, -2, -3, -4], severity),
             DecisionType::TIMEOUT => by_sev([-1, -1, -2, -3], severity),
@@ -138,7 +143,14 @@ impl Store {
         }
     }
 
-    /// Append a new event atomically, with a single locked handle (Windows-safe)
+    /// Append a new event atomically using a single locked handle (Windows-safe).
+    ///
+    /// Signs the canonical JSON of the event (with an empty `sig` field), then appends
+    /// the signed JSON as a single line.
+    ///
+    /// # Errors
+    /// Returns an error if the store file cannot be opened/locked, if the last line
+    /// cannot be read, or if the new line cannot be written/flushed.
     #[allow(clippy::too_many_arguments)]
     pub fn append(
         &self,
@@ -204,13 +216,21 @@ impl Store {
         event.sig = hex::encode(signature.to_bytes());
 
         // Append line
-        let line = String::from_utf8(to_canonical_json(&event)?)? + "\n";
+        let line = String::from_utf8(to_canonical_json(&event)?)? + '\n'.to_string().as_str();
         file.write_all(line.as_bytes())?;
         file.sync_all()?;
         file.unlock()?;
         Ok(event)
     }
 
+    /// Verify the entire log for chaining and signatures with the given verifying key.
+    ///
+    /// Checks that each line's `prev_hash` matches the SHA-256 of the previous line,
+    /// and that each line's signature validates over its canonical JSON (with empty `sig`).
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be opened, a line cannot be parsed,
+    /// a hash link is broken, or a signature fails to verify.
     pub fn verify(&self, verifying_key: &VerifyingKey) -> anyhow::Result<(bool, usize)> {
         let f = OpenOptions::new().read(true).open(&self.path)?;
         let reader = BufReader::new(f);
@@ -227,14 +247,18 @@ impl Store {
 
             let ev: Event = serde_json::from_str(&l)?;
             if ev.prev_hash != prev_hash {
-                anyhow::bail!("prev_hash mismatch at index {}", count);
+                anyhow::bail!("prev_hash mismatch at index {count}");
             }
 
             let mut ev_no_sig = ev.clone();
             ev_no_sig.sig = String::new();
             let bytes = to_canonical_json(&ev_no_sig)?;
-            let sig_bytes = hex::decode(ev.sig)?;
-            let sig = Signature::from_bytes(&sig_bytes.try_into().unwrap());
+
+            let sig_bytes = hex::decode(&ev.sig)?;
+            let sig_arr: [u8; 64] = sig_bytes
+                .try_into()
+                .map_err(|_| io::Error::other("signature length != 64"))?;
+            let sig = Signature::from_bytes(&sig_arr);
             verifying_key.verify(&bytes, &sig)?;
 
             prev_hash = computed_for_this_line;
@@ -243,6 +267,10 @@ impl Store {
         Ok((true, count))
     }
 
+    /// Compute the current score for a subject by summing event weights.
+    ///
+    /// # Errors
+    /// Returns an error if the store file cannot be opened or a line cannot be parsed.
     pub fn compute_score(&self, subject_peer_id: &str) -> anyhow::Result<i32> {
         let f = OpenOptions::new().read(true).open(&self.path)?;
         let reader = BufReader::new(f);

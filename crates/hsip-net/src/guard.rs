@@ -7,12 +7,19 @@ use std::time::{Duration, Instant};
 /// Simple guard configuration (read by udp.rs from env / config).
 #[derive(Clone, Debug)]
 pub struct GuardCfg {
+    /// Whether guard checks are enabled.
     pub enable: bool,
+    /// Minutes to keep a peer "pinned" (auto-allowed) after an allow decision.
     pub pin_minutes: u64,
+    /// Max number of E1 handshakes allowed per 5s window per IP.
     pub max_e1_per_5s: u32,
+    /// Max number of bad signatures allowed per minute per IP.
     pub max_bad_sig_per_min: u32,
+    /// Max number of control frames allowed per minute per IP.
     pub max_ctrl_per_min: u32,
+    /// Maximum accepted control frame length (post-prefix).
     pub max_frame_len: usize,
+    /// Optional padding target sizes (not enforced here; used by sender).
     pub pad_to_sizes: Vec<usize>,
 }
 
@@ -39,7 +46,9 @@ struct WindowCounter {
     window: Duration,
     limit: u32,
 }
+
 impl WindowCounter {
+    #[must_use]
     fn new_per(duration: Duration, limit: u32) -> Self {
         Self {
             times: VecDeque::new(),
@@ -47,8 +56,15 @@ impl WindowCounter {
             limit,
         }
     }
+
+    /// Record a hit and enforce the (count, window) limit.
+    ///
+    /// # Errors
+    /// Returns an error string if the limit is exceeded for the current window.
     fn hit(&mut self) -> Result<(), String> {
         let now = Instant::now();
+
+        // Evict old timestamps
         while let Some(&t) = self.times.front() {
             if now.duration_since(t) > self.window {
                 self.times.pop_front();
@@ -56,13 +72,12 @@ impl WindowCounter {
                 break;
             }
         }
+
         self.times.push_back(now);
-        if (self.times.len() as u32) > self.limit {
-            Err(format!(
-                "rate exceeded: {} in {:?}",
-                self.times.len(),
-                self.window
-            ))
+
+        let count = self.times.len() as u32;
+        if count > self.limit {
+            Err(format!("rate exceeded: {count} in {:?}", self.window))
         } else {
             Ok(())
         }
@@ -83,6 +98,7 @@ pub struct Guard {
 }
 
 impl Guard {
+    #[must_use]
     pub fn new(cfg: GuardCfg) -> Self {
         Self {
             cfg,
@@ -108,15 +124,31 @@ impl Guard {
         );
     }
 
-    pub fn cfg(&self) -> &GuardCfg {
+    #[must_use]
+    pub const fn cfg(&self) -> &GuardCfg {
         &self.cfg
     }
 
     /// Back-compat: udp.rs sometimes calls `on_control_frame(ip, len)`.
-    pub fn on_control_frame(&mut self, ip: IpAddr, _len: usize) -> Result<(), String> {
+    /// Also enforces `max_frame_len`.
+    ///
+    /// # Errors
+    /// - Returns an error string if the frame length exceeds `max_frame_len`.
+    /// - Propagates the per-minute control-rate limiter error.
+    pub fn on_control_frame(&mut self, ip: IpAddr, len: usize) -> Result<(), String> {
+        if self.cfg.enable && len > self.cfg.max_frame_len {
+            return Err(format!(
+                "frame too large: {} > {}",
+                len, self.cfg.max_frame_len
+            ));
+        }
         self.on_control(ip)
     }
 
+    /// Count a control-plane frame from `ip` against the per-minute window.
+    ///
+    /// # Errors
+    /// Returns a rate-limit error string when exceeded.
     pub fn on_control(&mut self, ip: IpAddr) -> Result<(), String> {
         if !self.cfg.enable {
             return Ok(());
@@ -127,6 +159,10 @@ impl Guard {
         entry.hit()
     }
 
+    /// Count an E1 (handshake init) from `ip` against the per-5s window.
+    ///
+    /// # Errors
+    /// Returns a rate-limit error string when exceeded.
     pub fn on_e1(&mut self, ip: IpAddr) -> Result<(), String> {
         if !self.cfg.enable {
             return Ok(());
@@ -137,6 +173,10 @@ impl Guard {
         entry.hit()
     }
 
+    /// Count a bad signature from `ip` against the per-minute window.
+    ///
+    /// # Errors
+    /// Returns a rate-limit error string when exceeded.
     pub fn on_bad_sig(&mut self, ip: IpAddr) -> Result<(), String> {
         if !self.cfg.enable {
             return Ok(());
@@ -152,20 +192,24 @@ impl Guard {
         if !self.cfg.enable {
             return;
         }
-        let until = Instant::now() + Duration::from_secs(self.cfg.pin_minutes * 60);
-        self.pinned.insert(peer_id.to_string());
-        self.pin_until.insert(peer_id.to_string(), until);
-        eprintln!("[Guard] pinned {}", peer_id);
+        let until = Instant::now() + Duration::from_secs(self.cfg.pin_minutes.saturating_mul(60));
+        let id = peer_id.to_owned();
+        self.pinned.insert(id.clone());
+        self.pin_until.insert(id.clone(), until);
+        eprintln!("[Guard] pinned {id}");
     }
 
     /// Back-compat: udp.rs calls `is_pinned(&peer_id)`.
+    ///
+    /// Performs opportunistic GC of expired pins.
+    #[must_use]
     pub fn is_pinned(&mut self, peer_id: &str) -> bool {
         if !self.cfg.enable {
             return false;
         }
-        // GC expired
         if let Some(&until) = self.pin_until.get(peer_id) {
             if Instant::now() >= until {
+                // expired → GC and report not pinned
                 self.pinned.remove(peer_id);
                 self.pin_until.remove(peer_id);
                 return false;

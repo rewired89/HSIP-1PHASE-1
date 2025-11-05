@@ -1,21 +1,27 @@
-// Run: cargo test -p hsip-core aad_labels
 use hsip_core::crypto::aead::{decrypt, encrypt, PacketKind};
-use rand::RngCore;
 
 #[test]
-fn aad_tamper_rejects_packet() {
-    let mut key = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut key);
-    let mut nonce = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut nonce);
-    let msg = b"consent:please";
+fn aad_is_bound_to_kind() -> Result<(), Box<dyn std::error::Error>> {
+    // 32-byte key, 12-byte nonce
+    let key = [0x11u8; 32];
+    let nonce = [0x22u8; 12];
+    let msg = b"hello-aad";
 
-    // Sender encrypts as E1
-    let ct = encrypt(PacketKind::E1, &key, &nonce, msg).expect("encrypt");
+    // Seal as E1
+    let ct =
+        encrypt(PacketKind::E1, &key, &nonce, msg).map_err(|e| format!("encrypt failed: {e}"))?;
 
-    // Honest verify (E1) succeeds
-    assert!(decrypt(PacketKind::E1, &key, &nonce, &ct).is_ok());
+    // Open as E1 → OK
+    let pt =
+        decrypt(PacketKind::E1, &key, &nonce, &ct).map_err(|e| format!("decrypt failed: {e}"))?;
+    assert_eq!(pt, msg);
 
-    // Wrong context (HELLO) must FAIL
-    assert!(decrypt(PacketKind::Hello, &key, &nonce, &ct).is_err());
+    // Open as E2 → must fail (AAD mismatch)
+    let err = decrypt(PacketKind::E2, &key, &nonce, &ct).unwrap_err();
+    assert!(
+        err.contains("auth_failed"),
+        "expected auth_failed, got {err}"
+    );
+
+    Ok(())
 }

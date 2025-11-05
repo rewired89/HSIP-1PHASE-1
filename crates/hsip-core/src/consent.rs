@@ -5,38 +5,58 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
-/// What the requester is asking to do with the content
+/// What the requester is asking to do with the content.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsentRequest {
-    pub version: u8,               // 1
-    pub requester_peer_id: String, // derived from requester_pub_key_hex
+    /// Protocol version (currently `1`).
+    pub version: u8,
+    /// Requester's peer id (derived from `requester_pub_key_hex`).
+    pub requester_peer_id: String,
+    /// Requester's Ed25519 public key, hex-encoded (32 bytes).
     pub requester_pub_key_hex: String,
-    pub content_cid_hex: String, // blake3(content) hex
-    pub purpose: String,         // e.g. "indexing", "analytics", "share"
-    pub expires_ms: u64,         // absolute epoch ms when request expires
-    pub ts_ms: u64,              // when created
-    pub nonce_hex: String,       // 12 random bytes hex to avoid replay
-    pub sig_hex: String,         // ed25519 signature over canonical preimage
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConsentResponse {
-    pub version: u8,              // 1
-    pub request_hash_hex: String, // blake3(canonical_preimage(request))
-    pub responder_peer_id: String,
-    pub responder_pub_key_hex: String,
-    pub decision: String, // "allow" | "deny"
-    pub ttl_ms: u64,      // 0 if deny; otherwise how long allowed
+    /// Content identifier: hex of `blake3(content)`.
+    pub content_cid_hex: String,
+    /// Purpose string, e.g. `"indexing"`, `"analytics"`, `"share"`.
+    pub purpose: String,
+    /// Absolute expiration time (epoch ms).
+    pub expires_ms: u64,
+    /// Creation timestamp (epoch ms).
     pub ts_ms: u64,
+    /// 12 random bytes in hex to prevent replay.
+    pub nonce_hex: String,
+    /// Ed25519 signature over the canonical preimage.
     pub sig_hex: String,
 }
 
-/// Compute a content identifier (CID) for arbitrary bytes using blake3 hex.
+/// Responder's signed decision to a request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsentResponse {
+    /// Protocol version (currently `1`).
+    pub version: u8,
+    /// Hex of `blake3(canonical_preimage(request))` to bind response to request.
+    pub request_hash_hex: String,
+    /// Responder's peer id (derived from `responder_pub_key_hex`).
+    pub responder_peer_id: String,
+    /// Responder's Ed25519 public key, hex-encoded (32 bytes).
+    pub responder_pub_key_hex: String,
+    /// `"allow"` or `"deny"`.
+    pub decision: String,
+    /// Time-to-live in ms (`0` if `deny`).
+    pub ttl_ms: u64,
+    /// Creation timestamp (epoch ms).
+    pub ts_ms: u64,
+    /// Ed25519 signature over the canonical preimage.
+    pub sig_hex: String,
+}
+
+/// Compute a content identifier (CID) for arbitrary bytes using `blake3`, hex-encoded.
+#[must_use]
 pub fn cid_hex(bytes: &[u8]) -> String {
     hex::encode(blake3::hash(bytes).as_bytes())
 }
 
 fn canonical_preimage_request(r: &ConsentRequest) -> String {
+    // Keep order stable — this string is what gets signed.
     format!(
         "CONSENT_REQUEST|v={}|pid={}|pub={}|cid={}|purpose={}|exp={}|ts={}|nonce={}",
         r.version,
@@ -51,6 +71,7 @@ fn canonical_preimage_request(r: &ConsentRequest) -> String {
 }
 
 fn canonical_preimage_response(resp: &ConsentResponse) -> String {
+    // Keep order stable — this string is what gets signed.
     format!(
         "CONSENT_RESPONSE|v={}|req_hash={}|pid={}|pub={}|decision={}|ttl={}|ts={}",
         resp.version,
@@ -63,18 +84,26 @@ fn canonical_preimage_response(resp: &ConsentResponse) -> String {
     )
 }
 
+/// Derive a requester peer id from a verifying key using the project’s scheme:
+/// `blake3(pubkey) → base32[..26]` (implemented in `identity.rs`).
+#[must_use]
 pub fn requester_peer_id(vk: &VerifyingKey) -> String {
     // use same algorithm as HELLO: blake3(pub) → base32[26] (implemented in identity.rs)
     hsip_core_peer_id(vk)
 }
+
 fn hsip_core_peer_id(vk: &VerifyingKey) -> String {
     hsip_crate_identity::peer_id_from_pubkey(vk)
 }
+
 mod hsip_crate_identity {
     pub use crate::identity::peer_id_from_pubkey;
 }
 
-/// Build & sign a ConsentRequest
+/// Build & sign a `ConsentRequest`.
+///
+/// Generates a 12-byte random nonce and signs the canonical request preimage with `sk`.
+#[must_use]
 pub fn build_request(
     sk: &SigningKey,
     vk: &VerifyingKey,
@@ -109,7 +138,14 @@ pub fn build_request(
     r
 }
 
-/// Verify a ConsentRequest
+/// Verify a `ConsentRequest`.
+///
+/// # Errors
+/// Returns an error if:
+/// - the public key hex is invalid or not 32 bytes,
+/// - the derived peer id does not match the embedded peer id,
+/// - the signature hex is invalid or not 64 bytes, or
+/// - signature verification fails.
 pub fn verify_request(r: &ConsentRequest) -> Result<(), String> {
     // reconstruct vk
     let pk = hex::decode(&r.requester_pub_key_hex).map_err(|e| format!("pub hex: {e}"))?;
@@ -133,7 +169,13 @@ pub fn verify_request(r: &ConsentRequest) -> Result<(), String> {
     Ok(())
 }
 
-/// Build & sign a ConsentResponse from a verified request
+/// Build & sign a `ConsentResponse` from a verified request.
+///
+/// Binds the response to the request by signing the canonical response preimage which
+/// contains `blake3(canonical_preimage(request))`.
+///
+/// # Errors
+/// Returns an error only if local signing fails (shouldn't happen with a valid key).
 pub fn build_response(
     sk: &SigningKey,
     vk: &VerifyingKey,
@@ -166,7 +208,15 @@ pub fn build_response(
     Ok(resp)
 }
 
-/// Verify a ConsentResponse against a known request
+/// Verify a `ConsentResponse` against a known request.
+///
+/// # Errors
+/// Returns an error if:
+/// - the request hash in the response does not match the provided request,
+/// - the responder public key hex is invalid or not 32 bytes,
+/// - the derived peer id does not match the embedded peer id,
+/// - the decision/ttl combination is inconsistent, or
+/// - signature verification fails.
 pub fn verify_response(resp: &ConsentResponse, req: &ConsentRequest) -> Result<(), String> {
     // check that request_hash matches the request
     let req_pre = canonical_preimage_request(req);

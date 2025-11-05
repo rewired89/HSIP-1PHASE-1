@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use dirs::config_dir;
-use ed25519_dalek::{SigningKey, VerifyingKey}; // <-- remove SecretKey import
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -12,15 +12,20 @@ struct StoredKey {
     priv_hex: String, // plaintext for now (dev mode)
 }
 
+#[must_use]
 fn store_path() -> PathBuf {
     let mut p = config_dir().unwrap_or_else(|| PathBuf::from("."));
     p.push("HSIP");
-    fs::create_dir_all(&p).ok();
+    let _ = fs::create_dir_all(&p);
     p.push("keystore.json");
     p
 }
 
 /// Save keypair in a local JSON file (DEV MODE: plaintext secret key).
+///
+/// # Errors
+/// Returns `Err(String)` if serialization fails, the file cannot be created,
+/// permissions cannot be set (Unix best-effort), or writing to disk fails.
 pub fn save_keypair(sk: &SigningKey, vk: &VerifyingKey) -> Result<(), String> {
     let obj = StoredKey {
         pub_hex: hex::encode(vk.as_bytes()),
@@ -33,15 +38,21 @@ pub fn save_keypair(sk: &SigningKey, vk: &VerifyingKey) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = f.metadata().map_err(|e| e.to_string())?.permissions();
-        perms.set_mode(0o600);
-        fs::set_permissions(&path, perms).ok();
+        if let Ok(meta) = f.metadata() {
+            let mut perms = meta.permissions();
+            perms.set_mode(0o600);
+            let _ = fs::set_permissions(&path, perms);
+        }
     }
-    f.write_all(json.as_bytes()).map_err(|e| e.to_string())?;
-    Ok(())
+    f.write_all(json.as_bytes()).map_err(|e| e.to_string())
 }
 
 /// Load keypair from local JSON file.
+///
+/// # Errors
+/// Returns `Err(String)` if the keystore file cannot be opened or read,
+/// the JSON fails to parse, the secret key hex is invalid or wrong length,
+/// or the reconstructed public key does not match the stored one.
 pub fn load_keypair() -> Result<(SigningKey, VerifyingKey), String> {
     let path = store_path();
     let mut f = fs::File::open(&path).map_err(|e| format!("open keystore: {e}"))?;
@@ -54,7 +65,7 @@ pub fn load_keypair() -> Result<(SigningKey, VerifyingKey), String> {
         .try_into()
         .map_err(|_| "wrong secret key length".to_string())?;
 
-    // ✅ Correct for ed25519-dalek v2: pass the [u8;32] directly
+    // ed25519-dalek v2: construct from the 32-byte seed and derive verifying key
     let sk = SigningKey::from_bytes(&arr);
     let vk = sk.verifying_key();
 

@@ -1,30 +1,33 @@
 //! Nonce utilities for ChaCha20-Poly1305 (96-bit = 12 bytes).
-//! Format: [ session_id: u32 (BE) | counter: u64 (BE) ]
+//! Format: [ `session_id`: u32 (BE) | counter: u64 (BE) ]
 //! - Monotonic per session.
-//! - Deterministic and collision-resistant for a given (session_id, counter).
+//! - Deterministic and collision-resistant for a given (`session_id`, counter).
 
 #[derive(Clone, Copy, Debug)]
 pub struct Nonce([u8; 12]);
 
 impl Nonce {
-    #[inline]
-    pub fn as_bytes(&self) -> &[u8; 12] {
+    /// Borrow the underlying 12-byte nonce.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 12] {
         &self.0
     }
 
-    /// Construct a Nonce from raw 12-byte array.
-    #[inline]
-    pub fn from_bytes(bytes: [u8; 12]) -> Self {
+    /// Construct a Nonce from a raw 12-byte array.
+    #[must_use]
+    pub const fn from_bytes(bytes: [u8; 12]) -> Self {
         Self(bytes)
     }
 
-    #[inline]
-    pub fn session_id(&self) -> u32 {
+    /// Extract the big-endian `session_id` (first 4 bytes).
+    #[must_use]
+    pub const fn session_id(&self) -> u32 {
         u32::from_be_bytes([self.0[0], self.0[1], self.0[2], self.0[3]])
     }
 
-    #[inline]
-    pub fn counter(&self) -> u64 {
+    /// Extract the big-endian `counter` (last 8 bytes).
+    #[must_use]
+    pub const fn counter(&self) -> u64 {
         u64::from_be_bytes([
             self.0[4], self.0[5], self.0[6], self.0[7], self.0[8], self.0[9], self.0[10],
             self.0[11],
@@ -40,8 +43,9 @@ pub struct NonceGen {
 }
 
 impl NonceGen {
-    /// Create with a caller-provided session_id (e.g., random u32).
-    pub fn new(session_id: u32) -> Self {
+    /// Create with a caller-provided `session_id` (e.g., random u32).
+    #[must_use]
+    pub const fn new(session_id: u32) -> Self {
         Self {
             session_id,
             counter: 0,
@@ -49,6 +53,10 @@ impl NonceGen {
     }
 
     /// Return the next unique nonce (increments counter).
+    ///
+    /// # Panics
+    /// Panics if the internal `counter` would overflow `u64::MAX`.
+    #[allow(clippy::expect_used)]
     pub fn next_nonce(&mut self) -> Nonce {
         self.counter = self.counter.checked_add(1).expect("nonce counter overflow");
         let mut out = [0u8; 12];
@@ -58,11 +66,14 @@ impl NonceGen {
     }
 
     /// Peek the next counter value (without increment).
-    pub fn next_counter(&self) -> u64 {
+    #[must_use]
+    pub const fn next_counter(&self) -> u64 {
         self.counter.saturating_add(1)
     }
 
-    pub fn session_id(&self) -> u32 {
+    /// Get the configured `session_id`.
+    #[must_use]
+    pub const fn session_id(&self) -> u32 {
         self.session_id
     }
 }
@@ -75,7 +86,9 @@ pub struct NonceTracker {
 }
 
 impl NonceTracker {
-    pub fn new() -> Self {
+    /// Construct a fresh tracker.
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             last_session: None,
             last_counter: 0,
@@ -83,8 +96,13 @@ impl NonceTracker {
     }
 
     /// Accept a nonce if strictly increasing within the same session.
-    /// If session_id changes, tracker resets to the new session and accepts
+    /// If `session_id` changes, tracker resets to the new session and accepts
     /// only if the first counter is >= 1.
+    ///
+    /// # Errors
+    /// - Returns `Err("nonce counter must start at >= 1")` if the first counter is `0`.
+    /// - Returns `Err("nonce not strictly increasing")` if the counter does not increase.
+    /// - Returns `Err("nonce counter must start at >= 1 for new session")` if a new session begins at `0`.
     pub fn accept(&mut self, nonce: &Nonce) -> Result<(), &'static str> {
         let sid = nonce.session_id();
         let ctr = nonce.counter();

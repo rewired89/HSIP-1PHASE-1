@@ -6,7 +6,17 @@ members = [
     "crates/hsip-reputation",
     "crates/hsip-cli",
 ]
+
 exclude = [
     "crates/hsip-session/fuzz"
 ]
 resolver = "2"
+
+[workspace.dependencies]
+tokio   = "1.39"     # or newer stable you’re already using
+mio     = "0.8.11"
+socket2 = "0.5.7"
+windows = "0.58.0"
+windows-sys = "0.60.2"
+windows-targets = "0.53.5"
+

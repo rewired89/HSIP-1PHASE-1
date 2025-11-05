@@ -2,7 +2,7 @@
 name = "hsip-reputation"
 version = "0.1.2"
 edition = "2021"
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 description = "HSIP reputation module: append-only, signed, hash-chained log + scoring"
 
 [dependencies]

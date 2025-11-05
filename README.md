@@ -27,3 +27,25 @@ privacy, consent, and accountability are built in.
 - Dev UX: Rust lib, browser extension/proxy, dashboard
 
 ## Crates
+
+# HSIP CLI (v0.2.0-mvp)
+
+## Quick Install (Windows)
+1. Download and run **HSIP-CLI-Setup.exe**.
+2. (Optional) Check **“Add HSIP to PATH”**.
+3. Start Menu → **HSIP Quickstart** to demo.
+
+## Quick Start (CLI)
+```powershell
+hsip-cli --help
+hsip-cli init
+# Window 1:
+hsip-cli hello-listen --addr 0.0.0.0:40404
+# Window 2:
+hsip-cli hello-send --to 127.0.0.1:40404
+# Session:
+hsip-cli session-listen --addr 127.0.0.1:50505
+hsip-cli session-send   --to   127.0.0.1:50505 --packets 3
+# Ping:
+hsip-cli ping-listen --addr 127.0.0.1:51515
+hsip-cli ping --to 127.0.0.1:51515 --count 3

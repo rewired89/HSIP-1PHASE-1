@@ -17,6 +17,7 @@ pub struct Hello {
     pub sig: String,   // hex(64B ed25519 signature)
 }
 
+#[must_use]
 fn caps_detect() -> Vec<String> {
     vec![
         "pqc=0".into(),
@@ -27,7 +28,7 @@ fn caps_detect() -> Vec<String> {
     ]
 }
 
-// Canonical preimage we sign/verify. Must match in build_hello & verify_hello.
+#[must_use]
 fn preimage(peer_id: &str, pub_key_hex: &str, caps: &[String], ts: u64, nonce_b64: &str) -> String {
     format!(
         "HELLO|{}|{}|{}|{}|{}",
@@ -39,6 +40,11 @@ fn preimage(peer_id: &str, pub_key_hex: &str, caps: &[String], ts: u64, nonce_b6
     )
 }
 
+/// Build a signed HELLO message bound to capabilities and a random nonce.
+///
+/// # Returns
+/// A fully populated `Hello` struct ready to send.
+#[must_use]
 pub fn build_hello(sk: &SigningKey, vk: &VerifyingKey, now_ms: u64) -> Hello {
     let peer_id = peer_id_from_pubkey(vk);
     let pub_key_hex = hex::encode(vk.as_bytes());
@@ -65,27 +71,32 @@ pub fn build_hello(sk: &SigningKey, vk: &VerifyingKey, now_ms: u64) -> Hello {
     }
 }
 
+/// Verify a HELLO message’s signature and identity binding.
+///
+/// # Errors
+/// Returns an error string if:
+/// - the public key hex is malformed or wrong length,
+/// - the derived PeerID doesn’t match the provided public key,
+/// - or the signature verification fails.
 pub fn verify_hello(h: &Hello) -> Result<(), String> {
     // 1) Rebuild verifying key from pub_key_hex
     let bytes = hex::decode(&h.pub_key_hex).map_err(|e| format!("bad pub key hex: {e}"))?;
     let arr: [u8; 32] = bytes
         .try_into()
-        .map_err(|_| "pub key wrong length".to_string())?;
+        .map_err(|_| String::from("pub key wrong length"))?;
     let vk = VerifyingKey::from_bytes(&arr).map_err(|e| format!("vk error: {e}"))?;
 
     // 2) Check peer_id matches pubkey
     let expect_pid = peer_id_from_pubkey(&vk);
     if expect_pid != h.peer_id {
-        return Err("peer_id does not match public key".into());
+        return Err(String::from("peer_id does not match public key"));
     }
 
     // 3) Verify signature over canonical preimage
     let pre = preimage(&h.peer_id, &h.pub_key_hex, &h.caps, h.ts, &h.nonce);
-
     let sig_bytes = hex::decode(&h.sig).map_err(|e| format!("sig hex error: {e}"))?;
-    let sig_arr: [u8; 64] = sig_bytes.try_into().map_err(|_| "sig len".to_string())?;
-    // Replace the two lines that build `sig` and verify:
-    let sig = Signature::from_bytes(&sig_arr); // <- no map_err; this cannot fail given a 64-byte array
+    let sig_arr: [u8; 64] = sig_bytes.try_into().map_err(|_| String::from("sig len"))?;
+    let sig = Signature::from_bytes(&sig_arr);
     vk.verify_strict(pre.as_bytes(), &sig)
         .map_err(|e: SignatureError| format!("verify failed: {e}"))?;
 

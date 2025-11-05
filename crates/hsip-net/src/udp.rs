@@ -10,8 +10,11 @@ use ed25519_dalek::{SigningKey, VerifyingKey};
 use hsip_core::consent::{verify_request, ConsentRequest, ConsentResponse};
 use hsip_core::identity::{peer_id_from_pubkey, vk_to_hex};
 use hsip_core::keystore::load_keypair;
+use hsip_core::wire::prefix::PREFIX_LEN;
 use hsip_session::{Ephemeral, PeerLabel, Session};
 use x25519_dalek::PublicKey as XPublicKey;
+
+use hsip_core::crypto::labels::{aad_for, AAD_LABEL_E2};
 
 use hsip_reputation::store::Store;
 
@@ -29,11 +32,11 @@ pub mod hello {
         let mut buf = [0u8; 65535];
         loop {
             let (n, p) = sock.recv_from(&mut buf)?;
-            if n < 6 || !hsip_core::wire::prefix::check_prefix(&buf[..n]) {
+            if n < PREFIX_LEN || !hsip_core::wire::prefix::check_prefix(&buf[..n]) {
                 // ignore non-HSIP packets
                 continue;
             }
-            let raw = &buf[6..n]; // strip 6-byte HSIP prefix
+            let raw = &buf[PREFIX_LEN..n]; // strip HSIP prefix
             let s = String::from_utf8_lossy(raw);
             println!("[hello] from {p} {s}");
         }
@@ -45,7 +48,7 @@ pub mod hello {
         let sock = UdpSocket::bind("0.0.0.0:0")?;
 
         // add HSIP prefix
-        let mut pkt = Vec::with_capacity(6 + json.len());
+        let mut pkt = Vec::with_capacity(PREFIX_LEN + json.len());
         hsip_core::wire::prefix::write_prefix(&mut pkt);
         pkt.extend_from_slice(&json);
 
@@ -58,9 +61,6 @@ pub mod hello {
 const TAG_E1: u8 = 0xE1;
 const TAG_E2: u8 = 0xE2;
 const TAG_D: u8 = 0xD0;
-
-// Control-plane AAD
-const AAD_CONTROL: &[u8] = b"type=CONTROL";
 
 // Small helper to read effective policy from env
 #[derive(Clone, Debug)]
@@ -120,39 +120,80 @@ pub fn listen_control(addr: &str) -> Result<()> {
     let sock = UdpSocket::bind(addr).map_err(|e| anyhow!("bind {addr}: {e}"))?;
     sock.set_nonblocking(true).ok();
     println!("[control-listen] bound on {addr}");
+    spawn_decoy_if_env();
+    fn spawn_decoy_if_env() {
+        let addr = match std::env::var("HSIP_DECOY_ADDR") {
+            Ok(v) if !v.is_empty() => v,
+            _ => return, // disabled
+        };
+
+        std::thread::spawn(move || {
+            match UdpSocket::bind(&addr) {
+                Ok(sock) => {
+                    eprintln!("[decoy] HSIP decoy bound on {}", addr);
+                    let mut buf = [0u8; 2048];
+                    let mut tick: u64 = 0;
+
+                    loop {
+                        match sock.recv_from(&mut buf) {
+                            Ok((n, p)) => {
+                                // Small variable delay (pseudo-tarpit) without RNG
+                                tick = tick.wrapping_add(1);
+                                let delay_ms = 2 + ((n as u64 + tick) % 7);
+                                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+
+                                // Build HSIP-shaped but invalid frame: prefix + bad tag (0xFF) + pad
+                                let mut pkt = Vec::with_capacity(
+                                    hsip_core::wire::prefix::PREFIX_LEN + 1 + 16,
+                                );
+                                hsip_core::wire::prefix::write_prefix(&mut pkt);
+                                pkt.push(0xFF); // invalid tag
+                                let pad_len = 8 + (n & 0x07);
+                                pkt.resize(pkt.len() + pad_len, 0);
+
+                                let _ = sock.send_to(&pkt, p);
+                            }
+                            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                std::thread::sleep(std::time::Duration::from_millis(1));
+                            }
+                            Err(ref e) if is_win_connreset(e) => continue,
+                            Err(e) => {
+                                eprintln!("[decoy] recv error: {e}");
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[decoy] bind failed on {}: {}", addr, e);
+                }
+            }
+        });
+    }
 
     // Wait for E1
     let mut buf = [0u8; 65535];
     let (_n, peer) = loop {
         match sock.recv_from(&mut buf) {
-            // Valid E1 candidate: length check and first tag byte
+            // Valid E1 candidate: require prefix and tag after prefix
             Ok((n, p))
-                if n > 32
+                if n > PREFIX_LEN + 32
                     && hsip_core::wire::prefix::check_prefix(&buf[..n])
-                    && buf[0] == TAG_E1 =>
+                    && buf[PREFIX_LEN] == TAG_E1 =>
             {
                 let _ = guard.on_e1(p.ip());
                 break (n, p);
             }
-
-            // Not E1 or too short — keep listening
-            Ok(_) => {
-                continue;
-            }
-            // Non-blocking socket: yield briefly
+            Ok(_) => continue,
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 std::thread::sleep(std::time::Duration::from_millis(1));
                 continue;
             }
-            // Other I/O errors: skip and continue listening
-            Err(_) => {
-                continue;
-            }
+            Err(_) => continue,
         }
     };
 
-    // Strip HSIP prefix (6 bytes) before extracting E1 body
-    let raw = &buf[6.._n];
+    // Strip HSIP prefix before extracting E1 body
+    let raw = &buf[PREFIX_LEN.._n];
 
     // Extract peer ephemeral X25519 public key (skip TAG_E1 at raw[0])
     let mut peer_pub_bytes = [0u8; 32];
@@ -165,17 +206,16 @@ pub fn listen_control(addr: &str) -> Result<()> {
     let label = PeerLabel {
         label: b"CONSENTv1".to_vec(),
     };
-    let shared = eph.into_shared(&peer_pub);
-
-    // Two sessions (rx/tx)
-    let mut sess = Session::from_shared_secret(shared, Some(&label));
+    let shared = eph.into_shared(&peer_pub)?;
+    // Single session (used for both open/seal)
+    let mut sess = Session::from_shared_secret(shared, Some(&label))?;
 
     // Send E2 (+ HSIP prefix)
     let mut e2 = [0u8; 1 + 32];
     e2[0] = TAG_E2;
     e2[1..].copy_from_slice(our_pub.as_bytes());
 
-    let mut pkt = Vec::with_capacity(6 + e2.len());
+    let mut pkt = Vec::with_capacity(PREFIX_LEN + e2.len());
     hsip_core::wire::prefix::write_prefix(&mut pkt);
     pkt.extend_from_slice(&e2);
 
@@ -192,18 +232,19 @@ pub fn listen_control(addr: &str) -> Result<()> {
     let mut rbuf = [0u8; 65535];
     loop {
         match sock.recv_from(&mut rbuf) {
+            // Control plane frames: require HSIP prefix + TAG_D after prefix
             Ok((n, p))
-                if n >= 7
+                if n > PREFIX_LEN
                     && hsip_core::wire::prefix::check_prefix(&rbuf[..n])
-                    && rbuf[6] == TAG_D =>
+                    && rbuf[PREFIX_LEN] == TAG_D =>
             {
                 if let Err(reason) = guard.on_control_frame(p.ip(), n) {
                     eprintln!("[guard] drop control from {p}: {reason}");
                     continue;
                 }
-                let raw = &rbuf[6..n]; // strip 6-byte HSIP prefix
+                let raw = &rbuf[PREFIX_LEN..n]; // strip HSIP prefix
                 let ct = &raw[1..]; // skip TAG_D
-                match sess.open(AAD_CONTROL, ct) {
+                match sess.open(&aad_for(AAD_LABEL_E2), ct) {
                     Ok(pt) => {
                         // Try parse as request, else as response, else raw JSON
                         if let Ok(req) = serde_json::from_slice::<ConsentRequest>(&pt) {
@@ -229,7 +270,6 @@ pub fn listen_control(addr: &str) -> Result<()> {
                                     );
                                     decision = "deny".into();
                                 } else {
-                                    // Open store once
                                     if rep_store.is_none() {
                                         rep_store = Some(
                                             Store::open(&pcfg.log_path).with_context(|| {
@@ -273,8 +313,8 @@ pub fn listen_control(addr: &str) -> Result<()> {
                             let resp =
                                 build_response_with_decision(&sk, &vk, &req, decision, 60_000)?;
                             let payload = serde_json::to_vec(&resp)?;
-                            let ct = sess.seal(AAD_CONTROL, &payload);
-                            let mut pkt = Vec::with_capacity(6 + 1 + ct.len());
+                            let ct = sess.seal(&aad_for(AAD_LABEL_E2), &payload)?;
+                            let mut pkt = Vec::with_capacity(PREFIX_LEN + 1 + ct.len());
                             hsip_core::wire::prefix::write_prefix(&mut pkt);
                             pkt.push(TAG_D);
                             pkt.extend_from_slice(&ct);
@@ -297,15 +337,11 @@ pub fn listen_control(addr: &str) -> Result<()> {
                 }
             }
             Ok((_n, _p)) => {}
-            Err(ref e) if is_win_connreset(e) => {
-                continue;
-            }
+            Err(ref e) if is_win_connreset(e) => continue,
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 std::thread::sleep(Duration::from_millis(5));
             }
-            Err(e) => {
-                return Err(anyhow!("recv: {e}"));
-            }
+            Err(e) => return Err(anyhow!("recv: {e}")),
         }
     }
 }
@@ -327,36 +363,46 @@ fn sealed_send(to: &str, payload: &[u8]) -> Result<()> {
     sock.set_read_timeout(Some(Duration::from_millis(2000)))
         .ok();
 
-    // E1
+    // E1 (+ HSIP prefix)
     let eph = Ephemeral::generate();
     let our_pub = eph.public();
     let mut e1 = [0u8; 1 + 32];
     e1[0] = TAG_E1;
     e1[1..].copy_from_slice(our_pub.as_bytes());
-    sock.send_to(&e1, to).map_err(|e| anyhow!("send E1: {e}"))?;
+    let mut pkt_e1 = Vec::with_capacity(PREFIX_LEN + e1.len());
+    hsip_core::wire::prefix::write_prefix(&mut pkt_e1);
+    pkt_e1.extend_from_slice(&e1);
+    sock.send_to(&pkt_e1, to)
+        .map_err(|e| anyhow!("send E1: {e}"))?;
 
-    // E2
+    // E2 (expect HSIP prefix)
     let mut buf = [0u8; 64];
     let (n, _peer) = sock
         .recv_from(&mut buf)
         .map_err(|e| anyhow!("recv E2: {e}"))?;
-    if n < 1 + 32 || buf[0] != TAG_E2 {
-        return Err(anyhow!("unexpected handshake response"));
+    if n < PREFIX_LEN + 1 || !hsip_core::wire::prefix::check_prefix(&buf[..n]) {
+        return Err(anyhow!(
+            "unexpected handshake response: missing/invalid HSIP prefix"
+        ));
+    }
+    let raw = &buf[PREFIX_LEN..n];
+    if raw.len() < 1 + 32 || raw[0] != TAG_E2 {
+        return Err(anyhow!("unexpected handshake response body"));
     }
     let mut srv_pub_bytes = [0u8; 32];
-    srv_pub_bytes.copy_from_slice(&buf[1..33]);
+    srv_pub_bytes.copy_from_slice(&raw[1..33]);
     let srv_pub = XPublicKey::from(srv_pub_bytes);
 
     // Session
     let label = PeerLabel {
         label: b"CONSENTv1".to_vec(),
     };
-    let shared = eph.into_shared(&srv_pub);
-    let mut sess = Session::from_shared_secret(shared, Some(&label));
+    let shared = eph.into_shared(&srv_pub)?;
+    let mut sess = Session::from_shared_secret(shared, Some(&label))?;
 
-    // Seal & send
-    let ct = sess.seal(AAD_CONTROL, payload);
-    let mut pkt = Vec::with_capacity(6 + 1 + ct.len());
+    // Seal & send (with HSIP prefix)
+    let ct = sess.seal(&aad_for(AAD_LABEL_E2), payload)?;
+    let mut pkt = Vec::with_capacity(PREFIX_LEN + 1 + ct.len());
     hsip_core::wire::prefix::write_prefix(&mut pkt);
     pkt.push(TAG_D);
     pkt.extend_from_slice(&ct);
