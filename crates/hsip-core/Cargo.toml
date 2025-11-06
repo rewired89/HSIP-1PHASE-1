@@ -3,6 +3,7 @@ name = "hsip-core"
 version = "0.1.2"
 edition = "2021"
 license = "Apache-2.0"
+rust-version = "1.87"
 
 [dependencies]
 ed25519-dalek = { version = "2", features = ["rand_core"] }

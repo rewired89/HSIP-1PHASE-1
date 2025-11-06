@@ -219,7 +219,7 @@ impl Store {
         let line = String::from_utf8(to_canonical_json(&event)?)? + '\n'.to_string().as_str();
         file.write_all(line.as_bytes())?;
         file.sync_all()?;
-        file.unlock()?;
+        fs2::FileExt::unlock(&file)?;
         Ok(event)
     }
 

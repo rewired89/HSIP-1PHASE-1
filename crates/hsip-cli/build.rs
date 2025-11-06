@@ -1,47 +1,49 @@
-// crates/hsip-cli/build.rs
-
+#[cfg(windows)]
 fn main() {
-    // Allow skipping resource embedding (CI or local)
-    if std::env::var("HSIP_NO_ICON").ok().as_deref() == Some("1") {
+    use std::path::Path;
+
+    // Re-run build script if env or icon changes
+    println!("cargo:rerun-if-env-changed=HSIP_NO_ICON");
+
+    // Allow disabling icon embedding (useful for CI): HSIP_NO_ICON=1
+    let no_icon = std::env::var("HSIP_NO_ICON").ok().as_deref() == Some("1");
+    if no_icon {
         return;
     }
 
-    // Only attempt on Windows + release builds
-    #[cfg(all(windows, not(debug_assertions)))]
-    {
-        // If embedding fails for any reason, just skip (don’t block the build)
-        let _ = try_embed();
-    }
-}
-
-#[cfg(all(windows, not(debug_assertions)))]
-fn try_embed() -> Result<(), Box<dyn std::error::Error>> {
-    use std::path::Path;
-
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")?;
-    // Prefer repo-root/installer/hsip.ico, else fall back to crates/hsip-cli/hsip.ico
-    let icon_guess = Path::new(&manifest_dir)
+    // Prefer repo-root/installer/hsip.ico; fall back to crate-local hsip.ico
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
+        .expect("CARGO_MANIFEST_DIR not set");
+    let guess_repo_icon = Path::new(&manifest_dir)
         .join("..").join("..").join("installer").join("hsip.ico");
-    let icon_path = if icon_guess.exists() {
-        icon_guess
+
+    let icon_path = if guess_repo_icon.exists() {
+        guess_repo_icon
     } else {
         Path::new(&manifest_dir).join("hsip.ico")
     };
 
-    // Ensure we only pass &str to winres
     let icon_str = icon_path
         .to_str()
-        .ok_or("icon path is not valid UTF-8")?;
+        .expect("icon path is not valid UTF-8");
 
     println!("cargo:rerun-if-changed={}", icon_str);
 
     let mut res = winres::WindowsResource::new();
-    res.set_icon(icon_str); // <-- expects &str
+    // winres expects &str, not Cow/path
+    res.set_icon(icon_str);
+
+    // Optional file metadata (nice for Explorer “Details”)
     res.set("FileDescription", "HSIP Command Line");
     res.set("ProductName", "HSIP CLI");
     res.set("CompanyName", "Nyx Systems LLC");
     res.set("ProductVersion", "0.2.0.0");
     res.set("FileVersion", "0.2.0.0");
-    res.compile()?;
-    Ok(())
+
+    res.compile().expect("failed to embed Windows icon/metadata");
+}
+
+#[cfg(not(windows))]
+fn main() {
+    // No-op on non-Windows targets
 }

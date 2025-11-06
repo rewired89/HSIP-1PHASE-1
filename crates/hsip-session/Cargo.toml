@@ -3,6 +3,7 @@ name = "hsip-session"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
+rust-version = "1.87"
 
 [dependencies]
 x25519-dalek = "2"
