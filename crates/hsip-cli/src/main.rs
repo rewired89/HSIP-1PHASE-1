@@ -1,5 +1,3 @@
-// crates/hsip-cli/src/main.rs
-
 use clap::{Parser, Subcommand};
 use hsip_session::persistence as session_persist;
 use std::fs;
@@ -19,6 +17,21 @@ use hsip_net::hello::build_hello;
 use hsip_net::udp::hello::{listen_hello, send_hello};
 use hsip_net::udp::{send_consent_request, send_consent_response};
 
+// NEW: tiny local consent HTTP + helpers (user-mode, no admin)
+use std::io::Read;
+use std::process::Command;
+use std::thread;
+use std::time::Duration;
+
+// NEW: passwordless device identity + consent tokens
+use hsip_auth::{identity as auth_identity, tokens as auth_tokens};
+
+// NEW: status/daemon API module (adds /status endpoints, etc.)
+mod daemon;
+
+// NEW: identity web demo (serves /status, /token, /demo on 127.0.0.1:9100)
+mod identity;
+
 use argon2::password_hash::{PasswordHash, SaltString};
 use argon2::{Argon2, PasswordHasher};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
@@ -30,18 +43,16 @@ use rand::rngs::OsRng;
 use rand::Rng; // for try_fill
 use rpassword::prompt_password;
 
-// cover/decoy (local thread)
 use rand::RngCore;
 use std::net::UdpSocket;
-use std::thread;
-use std::time::Duration;
+use std::net::SocketAddr;
+use std::net::UdpSocket as StdUdpSocket;
 
 // session demo + wait-reply
 use hsip_session::{Ephemeral, PeerLabel, Session};
-use std::net::UdpSocket as StdUdpSocket;
 use x25519_dalek::PublicKey as XPublicKey;
 
-// NEW: helper modules
+// NEW: helper modules (existing)
 mod cmd_rep;
 mod config;
 mod token;
@@ -58,6 +69,13 @@ const AAD_PING: &[u8] = b"type=PING";
 const TAG_E1: u8 = 0xE1;
 const TAG_E2: u8 = 0xE2;
 const TAG_D: u8 = 0xD0;
+
+// NEW: local consent HTTP bind (tray-lite)
+const CONSENT_HTTP_ADDR: &str = "127.0.0.1:9389";
+
+// NEW: local demo HSIP-aware website
+const DEMO_HTTP_ADDR: &str = "127.0.0.1:8080";
+
 
 #[derive(Parser)]
 #[command(name = "hsip", version, about = "HSIP command-line (v0.2.0-mvp)")]
@@ -189,7 +207,12 @@ enum Commands {
 
     // --- Privacy Ping ---
     PingListen { #[arg(long, default_value = "127.0.0.1:51515")] addr: String },
-    Ping { #[arg(long, default_value = "127.0.0.1:51515")] to: String, #[arg(long, default_value_t = 5)] count: u32, #[arg(long, default_value_t = 64)] size: usize, #[arg(long, default_value_t = 2000)] timeout_ms: u64 },
+    Ping {
+        #[arg(long, default_value = "127.0.0.1:51515")] to: String,
+        #[arg(long, default_value_t = 5)] count: u32,
+        #[arg(long, default_value_t = 64)] size: usize,
+        #[arg(long, default_value_t = 2000)] timeout_ms: u64
+    },
 
     // --- Session persistence helpers ---
     SessionSave { #[arg(long)] name: String, #[arg(long)] file: String },
@@ -204,10 +227,17 @@ enum Commands {
         #[arg(long, default_value_t = 30_000)] ttl_ms: u64,
         #[arg(long, default_value = "token.json")] out: String,
     },
+
     /// Verify a token against issuer pubkey hex
     TokenVerify {
         #[arg(long, default_value = "token.json")] file: String,
         #[arg(long)] issuer_vk_hex: String,
+    },
+
+    /// Verify a local device token (JWT-EdDSA) using `kid` from header; input via --token or --file.
+    TokenVerifyLocal {
+        #[arg(long)] token: Option<String>,
+        #[arg(long)] file: Option<String>,
     },
 
     // --- Discovery (static directory prototype) ---
@@ -217,7 +247,27 @@ enum Commands {
 
     // --- Reputation ---
     Rep(cmd_rep::RepArgs),
+
+    // --- Daemon / Status API ---
+    /// Start local status API (e.g. 127.0.0.1:8787) for tray/extension
+    Daemon {
+        #[arg(long, default_value = "127.0.0.1:8787")]
+        status_addr: String,
+    },
+
+    // --- Identity Web Demo ---
+    /// Run local HSIP Identity Broker (serves /demo on 127.0.0.1:9100)
+    IdentityServe,
+
+       // NEW: User-mode tray-lite: silent identity + spawn daemon + /consent HTTP
+    /// Start user-mode tray-lite (no admin): ensures identity, spawns daemon, serves /consent on 127.0.0.1:9389
+    Tray,
+
+    // NEW: HSIP demo website (local-only)
+    /// Run local HSIP demo site on 127.0.0.1:8080 for testing HSIP-aware pages
+    DemoSite,
 }
+
 
 fn main() {
     if let Err(e) = config::apply() {
@@ -483,7 +533,6 @@ fn main() {
                         let ct = &rbuf[1..n];
                         match sess_rx.open(AAD_CONTROL, ct) {
                             Ok(pt) => {
-                                // Try parse request, then build response using chosen decision/ttl
                                 if let Ok(req) = serde_json::from_slice::<ConsentRequest>(&pt) {
                                     let (sk, vk) = load_keypair().expect("identity");
                                     let resp = build_response(&sk, &vk, &req, &decision, ttl_ms, now_ms()).expect("build resp");
@@ -497,8 +546,6 @@ fn main() {
                                         }
                                         Err(e) => eprintln!("[CONTROL] seal resp: {e:?}"),
                                     }
-                                } else {
-                                    // Not JSON consent request → ignore quietly
                                 }
                             }
                             Err(_e) => { /* ignore non CONTROL */ }
@@ -509,7 +556,6 @@ fn main() {
                     Err(e) => { eprintln!("[CONTROL] recv error: {e}"); break; }
                 }
             }
-            let _ = _cover_handle.map(|h| h.join());
         }
 
         // === sender
@@ -934,6 +980,21 @@ fn main() {
             }
         }
 
+        // ===== Local device token verifier (JWT-EdDSA) =====
+        Commands::TokenVerifyLocal { token, file } => {
+            let tok = if let Some(t) = token {
+                t
+            } else if let Some(f) = file {
+                fs::read_to_string(&f).expect("read token file").trim().to_string()
+            } else {
+                eprintln!("[TOKEN] provide --token or --file"); return;
+            };
+            match verify_local_token_str(&tok) {
+                Ok(json) => println!("{}", json),
+                Err(e) => eprintln!("[TOKEN] [BAD] {}", e),
+            }
+        }
+
         // ===== Discovery (static) =====
         Commands::DiscoverList => {
             let dir = discovery::list();
@@ -944,9 +1005,138 @@ fn main() {
         Commands::DiscoverRemove { peer } => { discovery::remove(peer.clone()); println!("[DISC] removed {}", peer); }
 
         // ===== Reputation =====
-        Commands::Rep(args) => cmd_rep::run_rep(args).expect("rep command failed"),
+        Commands::Rep(args) => {
+            cmd_rep::run_rep(args).expect("rep command failed");
+        }
+
+        // ===== Daemon / Status API =====
+        Commands::Daemon { status_addr } => {
+            // Ensure passwordless device identity exists (no UI)
+            let _ = ensure_identity_silent();
+            let addr: SocketAddr = status_addr.parse().expect("invalid --status_addr");
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("tokio runtime");
+            rt.block_on(async {
+                if let Err(e) = daemon::http::serve(addr).await {
+                    eprintln!("[daemon] error: {e:?}");
+                }
+            });
+        }
+
+        // ===== Identity Web Demo =====
+        Commands::IdentityServe => {
+            // Ensure identity (no prompts)
+            let _ = ensure_identity_silent();
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("tokio runtime");
+            rt.block_on(async {
+                if let Err(e) = identity::run_identity_broker().await {
+                    eprintln!("[IDENTITY] broker error: {e:?}");
+                }
+            });
+        }
+
+        // ===== Tray-lite (user-mode): identity + spawn daemon + /consent =====
+        Commands::Tray => {
+            // 1) Ensure identity silently
+            match ensure_identity_silent() {
+                Ok(pid) => println!("[TRAY] identity ok (peer={})", pid),
+                Err(e) => { eprintln!("[TRAY] identity error: {e}"); return; }
+            }
+
+            // 2) Spawn daemon as child (same user, no admin)
+            if let Err(e) = ensure_daemon_running() {
+                eprintln!("[TRAY] daemon spawn error: {e}");
+            } else {
+                println!("[TRAY] daemon running (or will single-instance)");
+            }
+
+            // 3) Start local /consent HTTP (+ /status, + /verify)
+            start_local_consent_http();
+            println!("[TRAY] consent server on http://{}/consent", CONSENT_HTTP_ADDR);
+
+            // 4) Keep process alive (your real tray UI would live here)
+            loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
+        }
+
+        // ===== Demo site (local HSIP-aware webpage) =====
+        Commands::DemoSite => {
+            run_demo_site();
+        }
     }
 }
+fn run_demo_site() {
+    use tiny_http::{Server, Response, Header, StatusCode};
+
+    println!("[DEMO] starting HSIP demo site on http://{}/", DEMO_HTTP_ADDR);
+
+    let server = match Server::http(DEMO_HTTP_ADDR) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[DEMO] failed to bind {}: {}", DEMO_HTTP_ADDR, e);
+            return;
+        }
+    };
+
+    // Simple HSIP-aware HTML page with the meta marker
+    let html = r#"<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>HSIP Demo Site</title>
+    <meta name="hsip-site" content="1">
+    <style>
+      body { font-family: system-ui, sans-serif; padding: 20px; }
+      h1 { margin-top: 0; }
+      .box { border: 1px solid #ccc; padding: 12px; border-radius: 8px; max-width: 520px; }
+      .badge-info { font-size: 12px; color: #555; margin-top: 8px; }
+      code { background: #f5f5f5; padding: 2px 4px; border-radius: 3px; }
+    </style>
+  </head>
+  <body>
+    <h1>HSIP Demo Site</h1>
+    <div class="box">
+      <p>If HSIP is installed and the browser extension is active, you should see a small
+      <strong>“Protected by HSIP”</strong> badge in the bottom-right corner of this page.</p>
+
+      <p class="badge-info">
+        This page simply tells the browser:<br>
+        <code>&lt;meta name="hsip-site" content="1"&gt;</code><br>
+        The HSIP extension does the rest automatically.
+      </p>
+    </div>
+  </body>
+</html>
+"#;
+
+    loop {
+        match server.recv() {
+            Ok(req) => {
+                let url = req.url().to_string();
+                if url == "/" {
+                    let mut resp = Response::from_string(html);
+                    resp.add_header(
+                        Header::from_bytes(b"Content-Type", b"text/html; charset=utf-8").unwrap(),
+                    );
+                    let _ = req.respond(resp);
+                } else {
+                    let mut resp =
+                        Response::from_string("Not Found").with_status_code(StatusCode(404));
+                    let _ = req.respond(resp);
+                }
+            }
+            Err(e) => {
+                eprintln!("[DEMO] http error: {}", e);
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    }
+}
+
 
 fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).expect("clock").as_millis() as u64
@@ -957,4 +1147,354 @@ fn rand_range(min: usize, max: usize) -> usize {
     let span = (max - min) as u64;
     (min as u64 + (rand::random::<u64>() % (span + 1))) as usize
 }
+
 fn mean_interval_ms(rate_per_min: u32) -> u64 { (60_000.0 / (rate_per_min.max(1) as f64)).round() as u64 }
+
+// ========================= NEW TRAY-LITE HELPERS =========================
+
+fn ensure_identity_silent() -> anyhow::Result<String> {
+    // Creates ~/.hsip/identity.json automatically if missing
+    let pid = auth_identity::peer_id_b64()?;
+    Ok(pid)
+}
+
+fn ensure_daemon_running() -> anyhow::Result<()> {
+    // Ask current exe to spawn its own "daemon" child.
+    // The daemon should single-instance itself on bind; multiple spawns are harmless.
+    let exe = std::env::current_exe()?;
+    let _child = Command::new(exe).arg("daemon").spawn()?;
+    // brief backoff to let ports/IPC bind
+    thread::sleep(Duration::from_millis(400));
+    Ok(())
+}
+
+fn origin_allowed(req: &tiny_http::Request) -> bool {
+    // Dev escape hatch:
+    //   set HSIP_DEV_LOCAL=1 to allow curl/Postman without Origin
+    let dev_ok = std::env::var("HSIP_DEV_LOCAL")
+        .ok()
+        .as_deref() == Some("1");
+
+    let mut origin: Option<String> = None;
+    for h in req.headers() {
+        if h.field.equiv("Origin") {
+            origin = Some(h.value.to_string());
+            break;
+        }
+    }
+
+    match origin {
+        Some(o) => {
+            if o.starts_with("moz-extension://") {
+                true
+            } else {
+                dev_ok
+            }
+        }
+        None => dev_ok,
+    }
+}
+
+
+fn start_local_consent_http() {
+    // Minimal dependency: tiny_http (sync). We isolate it on 127.0.0.1 only.
+    thread::spawn(|| {
+        let server = match tiny_http::Server::http(CONSENT_HTTP_ADDR) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[TRAY] bind {} failed: {}", CONSENT_HTTP_ADDR, e);
+                return;
+            }
+        };
+
+        loop {
+            match server.recv() {
+                Ok(mut req) => {
+                    let method = req.method().as_str().to_string();
+                    let url = req.url().to_string();
+
+                    // --- CORS preflight (always allowed) ---
+                    if method == "OPTIONS" {
+                        let mut resp = tiny_http::Response::from_string("");
+                        resp.add_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Access-Control-Allow-Origin"[..],
+                                &b"*"[..],
+                            )
+                            .unwrap(),
+                        );
+                        resp.add_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Access-Control-Allow-Methods"[..],
+                                &b"GET, POST, OPTIONS"[..],
+                            )
+                            .unwrap(),
+                        );
+                        resp.add_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Access-Control-Allow-Headers"[..],
+                                &b"Content-Type, Authorization"[..],
+                            )
+                            .unwrap(),
+                        );
+                        let resp = resp.with_status_code(tiny_http::StatusCode(204));
+                        let _ = req.respond(resp);
+                        continue;
+                    }
+
+                    // --- Gate sensitive endpoints by Origin ---
+                    let is_protected_path =
+                        url == "/consent"
+                            || url == "/status"
+                            || url == "/verify"
+                            || url.starts_with("/verify?");
+                    if is_protected_path && !origin_allowed(&req) {
+                        let mut resp = tiny_http::Response::from_string(
+                            r#"{"ok":false,"error":"forbidden origin"}"#,
+                        )
+                        .with_status_code(tiny_http::StatusCode(403));
+                        resp.add_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Content-Type"[..],
+                                &b"application/json"[..],
+                            )
+                            .unwrap(),
+                        );
+                        resp.add_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Access-Control-Allow-Origin"[..],
+                                &b"*"[..],
+                            )
+                            .unwrap(),
+                        );
+                        let _ = req.respond(resp);
+                        continue;
+                    }
+
+                    if method == "POST" && url == "/consent" {
+                        // Body: { "scopes": ["login", ...], "aud": "app.example" }
+                        let mut body = String::new();
+                        let _ = req.as_reader().read_to_string(&mut body);
+
+                        #[derive(serde::Deserialize)]
+                        struct In {
+                            scopes: Option<Vec<String>>,
+                            aud: Option<String>,
+                        }
+
+                        let input: In =
+                            serde_json::from_str(&body).unwrap_or(In { scopes: None, aud: None });
+                        let scopes_v =
+                            input.scopes.unwrap_or_else(|| vec!["login".into()]);
+                        let aud_s = input.aud.unwrap_or_else(|| "local".into());
+                        let scope_strs: Vec<&str> =
+                            scopes_v.iter().map(|s| s.as_str()).collect();
+
+                        // TODO: Replace with native consent dialog before issuance.
+                        let token = auth_tokens::issue_consent(&scope_strs, 300, &aud_s)
+                            .unwrap_or_else(|_| "ERR".to_string());
+
+                        let resp_json = serde_json::json!({ "token": token });
+                        let mut resp = tiny_http::Response::from_string(
+                            serde_json::to_string(&resp_json).unwrap(),
+                        );
+                        resp.add_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Content-Type"[..],
+                                &b"application/json"[..],
+                            )
+                            .unwrap(),
+                        );
+                        resp.add_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Access-Control-Allow-Origin"[..],
+                                &b"*"[..],
+                            )
+                            .unwrap(),
+                        );
+                        let _ = req.respond(resp);
+
+                    } else if method == "POST" && url == "/verify" {
+                        // Body: { "token": "eyJ..." }
+                        let mut body = String::new();
+                        let _ = req.as_reader().read_to_string(&mut body);
+
+                        #[derive(serde::Deserialize)]
+                        struct InVerify {
+                            token: String,
+                        }
+
+                        let out = match serde_json::from_str::<InVerify>(&body) {
+                            Ok(v) => match verify_local_token_str(&v.token) {
+                                Ok(json) => json,
+                                Err(e) => {
+                                    serde_json::json!({ "ok": false, "error": e.to_string() })
+                                        .to_string()
+                                }
+                            },
+                            Err(e) => {
+                                serde_json::json!({ "ok": false, "error": format!("bad json: {e}") })
+                                    .to_string()
+                            }
+                        };
+
+                        let mut resp = tiny_http::Response::from_string(out);
+                        resp.add_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Content-Type"[..],
+                                &b"application/json"[..],
+                            )
+                            .unwrap(),
+                        );
+                        resp.add_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Access-Control-Allow-Origin"[..],
+                                &b"*"[..],
+                            )
+                            .unwrap(),
+                        );
+                        let _ = req.respond(resp);
+
+                    } else if method == "GET" && url.starts_with("/verify?") {
+                        // Quick GET variant: /verify?token=...
+                        let token = url
+                            .splitn(2, '?')
+                            .nth(1)
+                            .and_then(|q| {
+                                q.split('&')
+                                    .find(|kv| kv.starts_with("token="))
+                            })
+                            .and_then(|kv| kv.splitn(2, '=').nth(1))
+                            .map(|v| {
+                                percent_encoding::percent_decode_str(v)
+                                    .decode_utf8_lossy()
+                                    .to_string()
+                            });
+
+                        let out = match token {
+                            Some(t) => match verify_local_token_str(&t) {
+                                Ok(json) => json,
+                                Err(e) => {
+                                    serde_json::json!({ "ok": false, "error": e.to_string() })
+                                        .to_string()
+                                }
+                            },
+                            None => {
+                                serde_json::json!({ "ok": false, "error": "missing token param" })
+                                    .to_string()
+                            }
+                        };
+
+                        let mut resp = tiny_http::Response::from_string(out);
+                        resp.add_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Content-Type"[..],
+                                &b"application/json"[..],
+                            )
+                            .unwrap(),
+                        );
+                        resp.add_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Access-Control-Allow-Origin"[..],
+                                &b"*"[..],
+                            )
+                            .unwrap(),
+                        );
+                        let _ = req.respond(resp);
+
+                    } else if method == "GET" && url == "/status" {
+                        let pid =
+                            auth_identity::peer_id_b64().unwrap_or_else(|_| "<none>".into());
+                        let resp_json = serde_json::json!({ "ok": true, "peer": pid });
+                        let mut resp = tiny_http::Response::from_string(
+                            serde_json::to_string(&resp_json).unwrap(),
+                        );
+                        resp.add_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Content-Type"[..],
+                                &b"application/json"[..],
+                            )
+                            .unwrap(),
+                        );
+                        resp.add_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Access-Control-Allow-Origin"[..],
+                                &b"*"[..],
+                            )
+                            .unwrap(),
+                        );
+                        let _ = req.respond(resp);
+
+                    } else {
+                        let _ =
+                            req.respond(tiny_http::Response::from_string("ok"));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[TRAY] http error: {}", e);
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
+        }
+    });
+}
+
+// ========================= LOCAL TOKEN VERIFIER =========================
+
+fn verify_local_token_str(tok_in: &str) -> anyhow::Result<String> {
+    use anyhow::{anyhow, Result};
+    use base64::Engine;
+    use ed25519_dalek::{Signature, VerifyingKey};
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct Header { alg: String, kid: String, #[allow(dead_code)] typ: Option<String> }
+    #[derive(Deserialize)]
+    struct Claims { iss: String, sub: String, aud: String, iat: i64, exp: i64, scopes: Vec<String> }
+
+    // 1) sanitize: trim + strip quotes + accept {"token": "..."} input
+    let s = tok_in.trim();
+    let s = s.strip_prefix('"').and_then(|x| x.strip_suffix('"')).unwrap_or(s);
+    let token_str = if s.starts_with('{') {
+        #[derive(Deserialize)] struct Wrapper { token: String }
+        let w: Wrapper = serde_json::from_str(s).map_err(|_| anyhow!("bad token wrapper JSON"))?;
+        w.token.trim().to_string()
+    } else {
+        s.to_string()
+    };
+
+    // 2) split into 3 non-empty parts; tolerate accidental trailing dot
+    let parts: Vec<&str> = token_str.split('.').filter(|p| !p.is_empty()).collect();
+    if parts.len() != 3 { return Err(anyhow!("bad token format")); }
+    let (h_b64, p_b64, s_b64) = (parts[0], parts[1], parts[2]);
+
+    // 3) base64url (no pad) decode
+    let url = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let h_raw = url.decode(h_b64)?;
+    let p_raw = url.decode(p_b64)?;
+    let sig_raw = url.decode(s_b64)?;
+
+    // 4) parse JSON
+    let header: Header = serde_json::from_slice(&h_raw)?;
+    let claims: Claims = serde_json::from_slice(&p_raw)?;
+    if header.alg != "EdDSA" { return Err(anyhow!("unsupported alg: {}", header.alg)); }
+
+    // 5) verify Ed25519 over the exact signing input "h.p"
+    let signing_input = format!("{}.{}", h_b64, p_b64);
+    let vk_bytes = hex::decode(&header.kid)?;
+    if vk_bytes.len() != 32 { return Err(anyhow!("kid not 32 bytes")); }
+    let vk = VerifyingKey::from_bytes(&vk_bytes.try_into().map_err(|_| anyhow!("kid size"))?)?;
+    let sig = Signature::from_bytes(&sig_raw.try_into().map_err(|_| anyhow!("sig size"))?);
+    vk.verify_strict(signing_input.as_bytes(), &sig)?;
+
+    let out = serde_json::json!({
+        "ok": true,
+        "kid": header.kid,
+        "aud": claims.aud,
+        "exp": claims.exp,
+        "scopes": claims.scopes,
+        "iss": claims.iss,
+        "sub": claims.sub
+    });
+    Ok(out.to_string())
+}

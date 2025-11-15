@@ -1,0 +1,14 @@
+{
+  "manifest_version": 2,
+  "name": "HSIP Sign-In (Prototype)",
+  "version": "0.1.0",
+  "description": "Green/red HSIP dot + 'Sign in with HSIP' on login forms.",
+  "permissions": ["activeTab", "<all_urls>"],
+  "background": { "scripts": ["bg.js"] },
+  "content_scripts": [{
+    "matches": ["http://*/*", "https://*/*"],
+    "js": ["content.js"],
+    "run_at": "document_start"
+  }],
+  "icons": { "16": "icon16.png", "32": "icon32.png", "128": "icon128.png" }
+}

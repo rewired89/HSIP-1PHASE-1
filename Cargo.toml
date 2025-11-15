@@ -5,7 +5,9 @@ members = [
     "crates/hsip-net",
     "crates/hsip-reputation",
     "crates/hsip-cli",
+    "crates/hsip-auth" 
 ]
+
 
 exclude = [
     "crates/hsip-session/fuzz"
@@ -13,7 +15,7 @@ exclude = [
 resolver = "2"
 
 [workspace.dependencies]
-tokio   = "1.39"     # or newer stable you’re already using
+tokio   = "1.39"    
 mio     = "0.8.11"
 socket2 = "0.5.7"
 windows = "0.58.0"

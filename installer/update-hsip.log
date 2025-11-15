@@ -1,0 +1,35 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20251107014644
+Username: REWIRED89\rewired
+RunAs User: REWIRED89\rewired
+Configuration Name: 
+Machine: REWIRED89 (Microsoft Windows NT 10.0.26100.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -NoExit -ExecutionPolicy Bypass -File .\update-hsip.ps1
+Process ID: 13788
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+== HSIP Update Script ==
+Build dir: C:\Users\melas\HSIP-fresh\target\release
+Dest  dir: C:\Program Files\Nyx Systems\HSIP
+Scanning build dir for hsip*.exe...
+  found: hsip-cli.exe
+  found: hsip-tray.exe
+Stopping scheduled task: HSIP Daemon
+Stopping scheduled task: HSIP Tray
+Stopping processes: hsip-tray, hsip-cli (if running)
+Ensuring destination folder exists: C:\Program Files\Nyx Systems\HSIP
+Copying hsip-cli.exe -> C:\Program Files\Nyx Systems\HSIP\hsip-cli.exe
+Copying hsip-tray.exe -> C:\Program Files\Nyx Systems\HSIP\hsip-tray.exe
+Done. Log: C:\Users\melas\HSIP-fresh\installer\update-hsip.log
+**********************
+Windows PowerShell transcript end
+End time: 20251107014645
+**********************
