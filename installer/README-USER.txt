@@ -1,38 +1,44 @@
-HSIP – Hyper Secure Internet Protocol
-=====================================
+# HSIP v0.2.0-mvp — Hyper Secure Internet Protocol
 
-What this app does
-------------------
-HSIP gives your computer a private, cryptographic “device identity” and lets
-your browser use that identity to prove who you are to websites in a safer way.
+**Repo:** `rewired89/HSIP-fresh`  
+**Product owner:** Nyx Systems LLC  
 
-For non-technical users
------------------------
-1. Run "HSIP Tray" from the Start Menu.
-2. You’ll see the HSIP icon in your system tray.
-3. In Firefox, install the HSIP browser extension.
-4. When you browse HSIP-aware sites, you’ll see:
-   - HSIP Good  → protection is active
-   - HSIP Bad   → HSIP is installed but not active
-   - HSIP Danger → HSIP detected a serious risk
+HSIP is a **consent-first secure session protocol over UDP**.
 
-That’s it. You don’t have to manage keys or tokens manually.
+It is *not* a replacement for TCP, QUIC, or WireGuard.  
+Instead, HSIP is a **secure, consent-aware shim** that apps can stack under or next to existing transports when they need:
 
-For technical users
--------------------
-The main binary is:
+- Strong, user-owned identity (no CAs, no PKI bureaucracy)
+- Mandatory consent **before** any application data flows
+- Encrypted UDP sessions with replay protection
+- Explicit capability tokens (“what is this peer allowed to do?”)
 
-  hsip-cli.exe
+---
 
-Useful commands:
+## 1. What Works in v0.2.0-mvp
 
-  hsip-cli.exe init         # create a new identity under %USERPROFILE%\.hsip
-  hsip-cli.exe whoami       # show your PeerID and public key
-  hsip-cli.exe tray         # start the local tray (status + /consent HTTP)
-  hsip-cli.exe daemon       # start the status API daemon
-  hsip-cli.exe hello        # generate a signed HELLO JSON
-  hsip-cli.exe ping ...     # HSIP-encrypted privacy ping demo
+This tag is the **Basic, free HSIP MVP**. It focuses on:
 
-Identity is stored under:
+1. **Identity & HELLO**
+2. **Consent layer (local JSON + UDP control plane)**
+3. **Encrypted sessions over UDP**
+4. **Encrypted PING (latency + integrity)**
+5. **Tokens & local device consent**
+6. **Tray-lite + local demo site**
 
-  %USERPROFILE%\.hsip\
+Everything below is already implemented and tested on Windows (Rust, Cargo).
+
+---
+
+## 2. Building the Project
+
+Requirements:
+
+- Rust (stable)
+- `cargo`
+- Windows (MVP dev target; Linux should work with small tweaks)
+
+Build all crates:
+
+```bash
+cargo build

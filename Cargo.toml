@@ -5,7 +5,8 @@ members = [
     "crates/hsip-net",
     "crates/hsip-reputation",
     "crates/hsip-cli",
-    "crates/hsip-auth" 
+    "crates/hsip-auth",
+    "crates/hsip-gateway",
 ]
 
 

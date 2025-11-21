@@ -49,3 +49,60 @@ hsip-cli session-send   --to   127.0.0.1:50505 --packets 3
 # Ping:
 hsip-cli ping-listen --addr 127.0.0.1:51515
 hsip-cli ping --to 127.0.0.1:51515 --count 3
+
+
+## Quick local demo (Windows, dev build)
+From the repo root:
+
+# 0) Build once
+cargo build -p hsip-core -p hsip-net -p hsip-cli
+
+# 1) Generate a local identity (writes to %USERPROFILE%\.hsip)
+cargo run -p hsip-cli -- init
+
+# 2) HELLO handshake demo
+# Terminal 1
+cargo run -p hsip-cli -- handshake-listen --addr 127.0.0.1:9000
+
+# Terminal 2
+cargo run -p hsip-cli -- handshake-connect --addr 127.0.0.1:9000
+
+## Sealed UDP session demo
+This shows HSIP’s ephemeral X25519 + ChaCha20-Poly1305 session over UDP.
+
+# Terminal 1 – listener
+cargo run -p hsip-cli -- session-listen --addr 127.0.0.1:50505
+
+# Terminal 2 – sender
+cargo run -p hsip-cli -- session-send --to 127.0.0.1:50505
+
+
+┌───────────────────────────────┐
+│        Application Layer       │
+│  (chat, storage, browser ext)  │
+└───────────────────────────────┘
+           ▲
+           │ sealed frames
+           ▼
+┌───────────────────────────────┐
+│      Ephemeral Session Layer   │
+│ X25519 → ChaCha20-Poly1305     │
+│ Nonce guard + integrity        │
+└───────────────────────────────┘
+           ▲
+           │ consent token
+           ▼
+┌───────────────────────────────┐
+│        Consent Layer           │
+│ Signed allow/deny decisions    │
+│ Scope-bound, TTL-based         │
+└───────────────────────────────┘
+           ▲
+           │ signed HELLO
+           ▼
+┌───────────────────────────────┐
+│         Identity Layer         │
+│ Ed25519 PeerIDs                │
+│ Self-sovereign keys            │
+└───────────────────────────────┘
+

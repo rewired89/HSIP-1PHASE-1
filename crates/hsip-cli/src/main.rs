@@ -29,6 +29,9 @@ use hsip_auth::{identity as auth_identity, tokens as auth_tokens};
 // NEW: status/daemon API module (adds /status endpoints, etc.)
 mod daemon;
 
+// New commands module
+mod commands;
+
 // NEW: identity web demo (serves /status, /token, /demo on 127.0.0.1:9100)
 mod identity;
 
@@ -71,11 +74,10 @@ const TAG_E2: u8 = 0xE2;
 const TAG_D: u8 = 0xD0;
 
 // NEW: local consent HTTP bind (tray-lite)
-const CONSENT_HTTP_ADDR: &str = "127.0.0.1:9389";
+pub const CONSENT_HTTP_ADDR: &str = "127.0.0.1:9389";
 
 // NEW: local demo HSIP-aware website
-const DEMO_HTTP_ADDR: &str = "127.0.0.1:8080";
-
+pub const DEMO_HTTP_ADDR: &str = "127.0.0.1:8080";
 
 #[derive(Parser)]
 #[command(name = "hsip", version, about = "HSIP command-line (v0.2.0-mvp)")]
@@ -132,6 +134,20 @@ enum Commands {
     /// Send a HELLO frame to a UDP endpoint
     #[command(name = "hello-send", aliases = ["send"])]
     HelloSend { #[arg(long)] to: String },
+
+    /// Low-level HSIP HELLO handshake listener (new path)
+    #[command(name = "handshake-listen")]
+    HandshakeListen {
+        #[arg(long, default_value = "127.0.0.1:9000")]
+        addr: String,
+    },
+
+    /// Low-level HSIP HELLO handshake connector (new path)
+    #[command(name = "handshake-connect")]
+    HandshakeConnect {
+        #[arg(long, default_value = "127.0.0.1:9000")]
+        addr: String,
+    },
 
     // --- Consent (local) ---
     ConsentRequest {
@@ -259,15 +275,17 @@ enum Commands {
     /// Run local HSIP Identity Broker (serves /demo on 127.0.0.1:9100)
     IdentityServe,
 
-       // NEW: User-mode tray-lite: silent identity + spawn daemon + /consent HTTP
+    // NEW: User-mode tray-lite: silent identity + spawn daemon + /consent HTTP
     /// Start user-mode tray-lite (no admin): ensures identity, spawns daemon, serves /consent on 127.0.0.1:9389
     Tray,
 
     // NEW: HSIP demo website (local-only)
     /// Run local HSIP demo site on 127.0.0.1:8080 for testing HSIP-aware pages
     DemoSite,
-}
 
+    /// Print HSIP diagnostic info (identity, config, env, endpoints)
+    Diag,
+}
 
 fn main() {
     if let Err(e) = config::apply() {
@@ -426,6 +444,18 @@ fn main() {
                 eprintln!("[HELLO] send error: {e}");
             } else {
                 println!("[HELLO] sent → {}", to);
+            }
+        }
+
+        // ===== New low-level handshake commands (using commands::handshake) =====
+        Commands::HandshakeListen { addr } => {
+            if let Err(e) = commands::handshake::run_listen(&addr) {
+                eprintln!("[HANDSHAKE] listen error: {e}");
+            }
+        }
+        Commands::HandshakeConnect { addr } => {
+            if let Err(e) = commands::handshake::run_connect(&addr) {
+                eprintln!("[HANDSHAKE] connect error: {e}");
             }
         }
 
@@ -1067,8 +1097,16 @@ fn main() {
         Commands::DemoSite => {
             run_demo_site();
         }
+
+        // ===== Diagnostics =====
+        Commands::Diag => {
+            if let Err(e) = commands::diag::run_diag() {
+                eprintln!("[DIAG] error: {e:?}");
+            }
+        }
     }
 }
+
 fn run_demo_site() {
     use tiny_http::{Server, Response, Header, StatusCode};
 
@@ -1137,7 +1175,6 @@ fn run_demo_site() {
     }
 }
 
-
 fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).expect("clock").as_millis() as u64
 }
@@ -1194,7 +1231,6 @@ fn origin_allowed(req: &tiny_http::Request) -> bool {
         None => dev_ok,
     }
 }
-
 
 fn start_local_consent_http() {
     // Minimal dependency: tiny_http (sync). We isolate it on 127.0.0.1 only.

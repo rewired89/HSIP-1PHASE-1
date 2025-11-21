@@ -1236,6 +1236,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hsip-gateway"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs 5.0.1",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "hsip-net"
 version = "0.1.2"
 dependencies = [
@@ -1245,6 +1255,7 @@ dependencies = [
  "dirs 5.0.1",
  "ed25519-dalek",
  "hex",
+ "hkdf",
  "hsip-core",
  "hsip-reputation",
  "hsip-session",

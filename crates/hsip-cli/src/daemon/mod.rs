@@ -1,5 +1,7 @@
 use serde::{Serialize, Deserialize};
 use std::sync::{Arc, Mutex};
+use std::fs;
+use std::path::PathBuf;
 
 #[derive(Clone, Default)]
 pub struct AppState {
@@ -9,7 +11,7 @@ pub struct AppState {
     // reputation: ...
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Status {
     pub protected: bool,
     pub active_sessions: u32,
@@ -19,6 +21,11 @@ pub struct Status {
     pub bytes_in: u64,
     pub bytes_out: u64,
     pub path: Vec<String>,
+
+    // HSIP shield metrics (UDP guard + gateway)
+    pub blocked_connections: u64,
+    pub blocked_ips: u64,
+    pub blocked_trackers: u64,
 }
 
 impl Default for Status {
@@ -32,6 +39,37 @@ impl Default for Status {
             bytes_in: 0,
             bytes_out: 0,
             path: vec!["Local".into()],
+            blocked_connections: 0,
+            blocked_ips: 0,
+            blocked_trackers: 0,
+        }
+    }
+}
+
+/// Read HSIP Web Gateway metrics from ~/.hsip/gateway_metrics.json
+#[derive(Debug, Deserialize)]
+struct GatewayMetricsFile {
+    #[serde(default)]
+    blocked_trackers: u64,
+}
+
+fn gateway_metrics_path() -> PathBuf {
+    let base = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    base.join(".hsip").join("gateway_metrics.json")
+}
+
+fn read_blocked_trackers() -> u64 {
+    let path = gateway_metrics_path();
+    let data = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+
+    match serde_json::from_str::<GatewayMetricsFile>(&data) {
+        Ok(m) => m.blocked_trackers,
+        Err(e) => {
+            eprintln!("[daemon] failed to parse gateway metrics {}: {e}", path.display());
+            0
         }
     }
 }
@@ -47,6 +85,13 @@ pub fn snapshot_status() -> Status {
         bytes_in: 123456,
         bytes_out: 234567,
         path: vec!["Local".into(), "HSIP".into(), "Exit-GW-1".into()],
+
+        // UDP guard metrics (placeholder for now)
+        blocked_connections: 0,
+        blocked_ips: 0,
+
+        // HSIP Web Gateway metrics (real from file)
+        blocked_trackers: read_blocked_trackers(),
     }
 }
 

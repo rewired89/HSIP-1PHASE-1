@@ -1,8 +1,12 @@
 // crates/hsip-net/src/guard.rs
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs;
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
+
+use serde::{Deserialize, Serialize};
 
 /// Simple guard configuration (read by udp.rs from env / config).
 #[derive(Clone, Debug)]
@@ -84,6 +88,49 @@ impl WindowCounter {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct GuardStats {
+    blocked_events: u64,
+    blocked_ips: usize,
+}
+
+fn stats_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".hsip").join("guard_stats.json"))
+}
+
+fn persist_stats(stats: &GuardStats) {
+    if let Some(path) = stats_path() {
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        if let Ok(buf) = serde_json::to_vec(stats) {
+            let _ = fs::write(path, buf);
+        }
+    }
+}
+
+fn blocklist_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".hsip").join("tracker_blocklist.txt"))
+}
+
+fn load_blocklist() -> HashSet<IpAddr> {
+    let mut set = HashSet::new();
+    if let Some(path) = blocklist_path() {
+        if let Ok(text) = fs::read_to_string(path) {
+            for line in text.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                if let Ok(ip) = line.parse::<IpAddr>() {
+                    set.insert(ip);
+                }
+            }
+        }
+    }
+    set
+}
+
 pub struct Guard {
     cfg: GuardCfg,
 
@@ -95,6 +142,13 @@ pub struct Guard {
     // pinned peers (recently allowed)
     pinned: HashSet<String>,
     pin_until: HashMap<String, Instant>,
+
+    // aggregate block stats
+    blocked_events: u64,
+    blocked_ips: HashSet<IpAddr>,
+
+    // static tracker wall (IP blocklist)
+    tracker_blocklist: HashSet<IpAddr>,
 }
 
 impl Guard {
@@ -107,6 +161,9 @@ impl Guard {
             ctrl_per_min: HashMap::new(),
             pinned: HashSet::new(),
             pin_until: HashMap::new(),
+            blocked_events: 0,
+            blocked_ips: HashSet::new(),
+            tracker_blocklist: load_blocklist(),
         }
     }
 
@@ -122,11 +179,42 @@ impl Guard {
             self.cfg.max_frame_len,
             self.cfg.pad_to_sizes
         );
+        if !self.tracker_blocklist.is_empty() {
+            eprintln!(
+                "[GuardDebug] tracker wall active: {} IPs in blocklist",
+                self.tracker_blocklist.len()
+            );
+        }
     }
 
     #[must_use]
     pub const fn cfg(&self) -> &GuardCfg {
         &self.cfg
+    }
+
+    fn is_blocklisted(&self, ip: IpAddr) -> bool {
+        self.tracker_blocklist.contains(&ip)
+    }
+
+    /// Mark a peer/IP as blocked for stats (in-memory + persisted).
+    fn mark_blocked(&mut self, ip: IpAddr) {
+        if !self.cfg.enable {
+            return;
+        }
+        self.blocked_events = self.blocked_events.saturating_add(1);
+        self.blocked_ips.insert(ip);
+
+        let stats = GuardStats {
+            blocked_events: self.blocked_events,
+            blocked_ips: self.blocked_ips.len(),
+        };
+        persist_stats(&stats);
+    }
+
+    /// Expose block statistics for in-process callers.
+    #[must_use]
+    pub fn blocked_stats(&self) -> (u64, usize) {
+        (self.blocked_events, self.blocked_ips.len())
     }
 
     /// Back-compat: udp.rs sometimes calls `on_control_frame(ip, len)`.
@@ -137,6 +225,7 @@ impl Guard {
     /// - Propagates the per-minute control-rate limiter error.
     pub fn on_control_frame(&mut self, ip: IpAddr, len: usize) -> Result<(), String> {
         if self.cfg.enable && len > self.cfg.max_frame_len {
+            self.mark_blocked(ip);
             return Err(format!(
                 "frame too large: {} > {}",
                 len, self.cfg.max_frame_len
@@ -153,10 +242,23 @@ impl Guard {
         if !self.cfg.enable {
             return Ok(());
         }
+
+        if self.is_blocklisted(ip) {
+            self.mark_blocked(ip);
+            eprintln!("[Guard] control from {ip} blocked by tracker wall");
+            return Err("blocked by tracker wall".into());
+        }
+
         let entry = self.ctrl_per_min.entry(ip).or_insert_with(|| {
             WindowCounter::new_per(Duration::from_secs(60), self.cfg.max_ctrl_per_min)
         });
-        entry.hit()
+        match entry.hit() {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                self.mark_blocked(ip);
+                Err(e)
+            }
+        }
     }
 
     /// Count an E1 (handshake init) from `ip` against the per-5s window.
@@ -167,10 +269,23 @@ impl Guard {
         if !self.cfg.enable {
             return Ok(());
         }
+
+        if self.is_blocklisted(ip) {
+            self.mark_blocked(ip);
+            eprintln!("[Guard] E1 from {ip} blocked by tracker wall");
+            return Err("blocked by tracker wall".into());
+        }
+
         let entry = self.e1_per_5s.entry(ip).or_insert_with(|| {
             WindowCounter::new_per(Duration::from_secs(5), self.cfg.max_e1_per_5s)
         });
-        entry.hit()
+        match entry.hit() {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                self.mark_blocked(ip);
+                Err(e)
+            }
+        }
     }
 
     /// Count a bad signature from `ip` against the per-minute window.
@@ -181,10 +296,23 @@ impl Guard {
         if !self.cfg.enable {
             return Ok(());
         }
+
+        if self.is_blocklisted(ip) {
+            self.mark_blocked(ip);
+            eprintln!("[Guard] bad-sig from {ip} blocked by tracker wall");
+            return Err("blocked by tracker wall".into());
+        }
+
         let entry = self.bad_sig_per_min.entry(ip).or_insert_with(|| {
             WindowCounter::new_per(Duration::from_secs(60), self.cfg.max_bad_sig_per_min)
         });
-        entry.hit()
+        match entry.hit() {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                self.mark_blocked(ip);
+                Err(e)
+            }
+        }
     }
 
     /// Back-compat: udp.rs calls `pin(&peer_id)` when a request is allowed.

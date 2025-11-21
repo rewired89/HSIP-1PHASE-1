@@ -13,6 +13,7 @@ serde_json = "1"
 x25519-dalek = "2"
 hsip-session = { path = "../hsip-session" }
 sha2 = "0.10"
+hkdf = "0.12"
 
 
 # crypto for signing (used by HELLO etc.) — keep ONE line only
