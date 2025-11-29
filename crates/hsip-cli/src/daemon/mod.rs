@@ -1,7 +1,7 @@
-use serde::{Serialize, Deserialize};
-use std::sync::{Arc, Mutex};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Default)]
 pub struct AppState {
@@ -68,7 +68,10 @@ fn read_blocked_trackers() -> u64 {
     match serde_json::from_str::<GatewayMetricsFile>(&data) {
         Ok(m) => m.blocked_trackers,
         Err(e) => {
-            eprintln!("[daemon] failed to parse gateway metrics {}: {e}", path.display());
+            eprintln!(
+                "[daemon] failed to parse gateway metrics {}: {e}",
+                path.display()
+            );
             0
         }
     }
@@ -101,7 +104,7 @@ pub mod http {
         extract::{Path, State},
         response::IntoResponse,
         routing::{get, post},
-        Json, Router
+        Json, Router,
     };
     use std::net::SocketAddr;
     use tokio::net::TcpListener;
@@ -180,7 +183,10 @@ pub mod http {
         Json(req): Json<GrantRequest>,
     ) -> Result<Json<GrantResponse>, axum::http::StatusCode> {
         // TODO: call your real token issuer; stubbed token:
-        let token = format!("cap::{}/{}::{}", req.grantee_pubkey_hex, req.purpose, req.expires_ms);
+        let token = format!(
+            "cap::{}/{}::{}",
+            req.grantee_pubkey_hex, req.purpose, req.expires_ms
+        );
         Ok(Json(GrantResponse { token }))
     }
 
@@ -188,7 +194,9 @@ pub mod http {
         Json(req): Json<RevokeRequest>,
     ) -> Result<Json<serde_json::Value>, axum::http::StatusCode> {
         // TODO: kill session(s) by req.peer_id via your session manager
-        Ok(Json(serde_json::json!({"ok": true, "revoked_for": req.peer_id})))
+        Ok(Json(
+            serde_json::json!({"ok": true, "revoked_for": req.peer_id}),
+        ))
     }
 
     async fn get_reputation(

@@ -28,10 +28,10 @@ pub struct KeepaliveConfig {
 impl Default for KeepaliveConfig {
     fn default() -> Self {
         KeepaliveConfig {
-            idle_after_ms: 15_000,      // 15s of silence -> start pinging
-            ping_interval_ms: 5_000,    // ping every 5s while idle
-            max_missed_pings: 3,        // 3 unanswered pings -> dead
-            hard_timeout_ms: 60_000,    // 60s total silence -> dead no matter what
+            idle_after_ms: 15_000,   // 15s of silence -> start pinging
+            ping_interval_ms: 5_000, // ping every 5s while idle
+            max_missed_pings: 3,     // 3 unanswered pings -> dead
+            hard_timeout_ms: 60_000, // 60s total silence -> dead no matter what
         }
     }
 }
@@ -91,11 +91,7 @@ impl KeepaliveState {
     ///   * we've been idle (no RX) for at least idle_after_ms, AND
     ///   * either we've never pinged, or it's been at least ping_interval_ms
     ///     since the last ping.
-    pub fn should_send_ping(
-        &self,
-        cfg: &KeepaliveConfig,
-        now_ms: u64,
-    ) -> bool {
+    pub fn should_send_ping(&self, cfg: &KeepaliveConfig, now_ms: u64) -> bool {
         let idle_for = now_ms.saturating_sub(self.last_rx_ms);
 
         if idle_for < cfg.idle_after_ms {

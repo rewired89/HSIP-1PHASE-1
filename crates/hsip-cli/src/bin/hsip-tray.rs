@@ -2,6 +2,7 @@ use anyhow::Result;
 use serde::Deserialize;
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::process::Command;
 use std::thread;
 use std::time::Duration;
 use tray_icon::{TrayIcon, TrayIconBuilder};
@@ -16,10 +17,6 @@ struct Status {
     bytes_in: u64,
     bytes_out: u64,
     path: Vec<String>,
-
-    blocked_connections: u64,
-    blocked_ips: u64,
-    blocked_trackers: u64,
 }
 
 fn solid_icon(width: u32, height: u32, rgba: [u8; 4]) -> tray_icon::Icon {
@@ -54,6 +51,7 @@ fn main() -> Result<()> {
     let red = solid_icon(16, 16, [200, 0, 0, 255]);
     let green = solid_icon(16, 16, [0, 200, 0, 255]);
 
+    // IMPORTANT: tray-icon 0.21.x expects an Icon (not Option) on with_icon
     let mut tray: TrayIcon = TrayIconBuilder::new()
         .with_tooltip("HSIP: starting…")
         .with_icon(red.clone())
@@ -63,10 +61,11 @@ fn main() -> Result<()> {
     loop {
         match get_status() {
             Ok(s) => {
+                // set_icon takes Option<Icon> on 0.21.x
                 tray.set_icon(Some(green.clone())).ok();
                 let tt = format!(
-                    "HSIP shield ON\nsessions={}\nblocked_conn={}\nblocked_ips={}\nblocked_trackers={}",
-                    s.active_sessions, s.blocked_connections, s.blocked_ips, s.blocked_trackers
+                    "HSIP ✓  {} | sess={} | egress={}",
+                    s.cipher, s.active_sessions, s.egress_peer
                 );
                 tray.set_tooltip(Some(&tt)).ok();
             }
@@ -77,5 +76,13 @@ fn main() -> Result<()> {
         }
 
         thread::sleep(Duration::from_secs(3));
+    }
+}
+
+fn run_tray_ui() -> anyhow::Result<()> {
+    // TODO: move your existing tray setup/start code here.
+    // For now, keep the process alive:
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(3600));
     }
 }

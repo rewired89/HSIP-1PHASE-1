@@ -46,11 +46,11 @@ mod tests {
 
     #[test]
     fn labels_are_stable() {
-        assert_eq!(AAD_HELLO,  b"HSIP-V1-HELLO");
+        assert_eq!(AAD_HELLO, b"HSIP-V1-HELLO");
         assert_eq!(AAD_CONSENT, b"HSIP-V1-CONSENT");
-        assert_eq!(AAD_DATA,    b"HSIP-V1-DATA");
-        assert_eq!(AAD_TICKET,  b"HSIP-TICKET-V1");
-        assert_eq!(AAD_REKEY,   b"HSIP-V1-REKEY");
-        assert_eq!(AAD_STATUS,  b"HSIP-V1-STATUS");
+        assert_eq!(AAD_DATA, b"HSIP-V1-DATA");
+        assert_eq!(AAD_TICKET, b"HSIP-TICKET-V1");
+        assert_eq!(AAD_REKEY, b"HSIP-V1-REKEY");
+        assert_eq!(AAD_STATUS, b"HSIP-V1-STATUS");
     }
 }

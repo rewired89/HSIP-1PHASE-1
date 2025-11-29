@@ -1,2 +1,2 @@
-pub mod handshake;
 pub mod diag;
+pub mod handshake;

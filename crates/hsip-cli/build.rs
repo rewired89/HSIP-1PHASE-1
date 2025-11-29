@@ -12,10 +12,12 @@ fn main() {
     }
 
     // Prefer repo-root/installer/hsip.ico; fall back to crate-local hsip.ico
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .expect("CARGO_MANIFEST_DIR not set");
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let guess_repo_icon = Path::new(&manifest_dir)
-        .join("..").join("..").join("installer").join("hsip.ico");
+        .join("..")
+        .join("..")
+        .join("installer")
+        .join("hsip.ico");
 
     let icon_path = if guess_repo_icon.exists() {
         guess_repo_icon
@@ -23,9 +25,7 @@ fn main() {
         Path::new(&manifest_dir).join("hsip.ico")
     };
 
-    let icon_str = icon_path
-        .to_str()
-        .expect("icon path is not valid UTF-8");
+    let icon_str = icon_path.to_str().expect("icon path is not valid UTF-8");
 
     println!("cargo:rerun-if-changed={}", icon_str);
 
@@ -40,7 +40,8 @@ fn main() {
     res.set("ProductVersion", "0.2.0.0");
     res.set("FileVersion", "0.2.0.0");
 
-    res.compile().expect("failed to embed Windows icon/metadata");
+    res.compile()
+        .expect("failed to embed Windows icon/metadata");
 }
 
 #[cfg(not(windows))]

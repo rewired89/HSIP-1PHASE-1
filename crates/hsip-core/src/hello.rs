@@ -1,9 +1,9 @@
 //! HSIP HELLO message: protocol version + capabilities + signature.
 //! This is the first thing peers exchange over UDP before consent.
 
-use serde::{Deserialize, Serialize};
-use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
 use core::fmt;
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use serde::{Deserialize, Serialize};
 
 /// Minimal PeerId for HELLO.
 /// Later you can wire this to your real identity module.
@@ -192,9 +192,7 @@ impl SignedHello {
     ) -> Result<(), HelloError> {
         // 1. Version check (downgrade protection, future-proofing).
         if self.hello.protocol_version != HSIP_VERSION_1 {
-            return Err(HelloError::UnsupportedVersion(
-                self.hello.protocol_version,
-            ));
+            return Err(HelloError::UnsupportedVersion(self.hello.protocol_version));
         }
 
         // 2. Timestamp freshness check.

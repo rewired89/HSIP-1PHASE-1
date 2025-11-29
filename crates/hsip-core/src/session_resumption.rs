@@ -255,19 +255,11 @@ mod tests {
         let peer_id = PeerId([1u8; 32]);
         let caps = HelloCapabilities::default_local();
 
-        let ticket = create_session_ticket(
-            &key,
-            &cfg,
-            peer_id,
-            caps,
-            now_ms(),
-            30_000,
-        )
-        .expect("ticket should be created");
+        let ticket = create_session_ticket(&key, &cfg, peer_id, caps, now_ms(), 30_000)
+            .expect("ticket should be created");
 
-        let data =
-            decrypt_session_ticket(&key, &cfg, &ticket, now_ms() + 10_000)
-                .expect("ticket should be valid");
+        let data = decrypt_session_ticket(&key, &cfg, &ticket, now_ms() + 10_000)
+            .expect("ticket should be valid");
 
         assert_eq!(data.peer_id.0, peer_id.0);
         assert!(data.caps.supports(crate::hello::CAP_CONSENT_LAYER));
@@ -281,23 +273,10 @@ mod tests {
         let peer_id = PeerId([2u8; 32]);
         let caps = HelloCapabilities::default_local();
 
-        let ticket = create_session_ticket(
-            &key,
-            &cfg,
-            peer_id,
-            caps,
-            now_ms(),
-            10_000,
-        )
-        .expect("ticket should be created");
+        let ticket = create_session_ticket(&key, &cfg, peer_id, caps, now_ms(), 10_000)
+            .expect("ticket should be created");
 
-        let err = decrypt_session_ticket(
-            &key,
-            &cfg,
-            &ticket,
-            now_ms() + 11_000,
-        )
-        .unwrap_err();
+        let err = decrypt_session_ticket(&key, &cfg, &ticket, now_ms() + 11_000).unwrap_err();
 
         matches!(err, SessionTicketError::Expired);
     }

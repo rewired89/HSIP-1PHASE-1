@@ -182,9 +182,7 @@ pub fn listen_control(addr: &str) -> Result<()> {
     let (_n, peer) = loop {
         match sock.recv_from(&mut buf) {
             Ok((n, p))
-                if n > PREFIX_LEN + 32
-                    && check_prefix(&buf[..n])
-                    && buf[PREFIX_LEN] == TAG_E1 =>
+                if n > PREFIX_LEN + 32 && check_prefix(&buf[..n]) && buf[PREFIX_LEN] == TAG_E1 =>
             {
                 let _ = guard.on_e1(p.ip());
                 break (n, p);
@@ -248,9 +246,7 @@ pub fn listen_control(addr: &str) -> Result<()> {
     loop {
         match sock.recv_from(&mut rbuf) {
             Ok((n, p))
-                if n > PREFIX_LEN
-                    && check_prefix(&rbuf[..n])
-                    && rbuf[PREFIX_LEN] == TAG_D =>
+                if n > PREFIX_LEN && check_prefix(&rbuf[..n]) && rbuf[PREFIX_LEN] == TAG_D =>
             {
                 if let Err(reason) = guard.on_control_frame(p.ip(), n) {
                     eprintln!("[guard] drop control from {p}: {reason}");
@@ -324,14 +320,14 @@ pub fn listen_control(addr: &str) -> Result<()> {
                             }
 
                             // Build response
-                            let resp = build_response_with_decision(
-                                &sk, &vk, &req, decision, 60_000,
-                            )?;
+                            let resp =
+                                build_response_with_decision(&sk, &vk, &req, decision, 60_000)?;
 
                             let payload = serde_json::to_vec(&resp)?;
 
-                            let (ctr2, ct2) =
-                                managed.encrypt(&payload, &aad).map_err(|e| anyhow!("{:?}", e))?;
+                            let (ctr2, ct2) = managed
+                                .encrypt(&payload, &aad)
+                                .map_err(|e| anyhow!("{:?}", e))?;
 
                             let mut pkt = Vec::with_capacity(PREFIX_LEN + 1 + 8 + ct2.len());
                             write_prefix(&mut pkt);

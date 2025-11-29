@@ -44,8 +44,8 @@ fn same_session_strict_increasing() -> Result<(), Box<dyn std::error::Error>> {
 // simple smoke test for nonce/key derivation (monotonic behaviour)
 #[test]
 fn nonce_length_is_consistent() {
-// This test asserts that derived nonces or key material lengths meet expectations.
-// Replace with real NonceGen tests if you have a generator.
-let n = 12usize; // expected nonce bytes for ChaCha20-Poly1305
-assert_eq!(n, 12);
+    // This test asserts that derived nonces or key material lengths meet expectations.
+    // Replace with real NonceGen tests if you have a generator.
+    let n = 12usize; // expected nonce bytes for ChaCha20-Poly1305
+    assert_eq!(n, 12);
 }

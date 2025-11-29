@@ -10,9 +10,7 @@ use std::time::{Duration, Instant};
 
 use chacha20poly1305::{
     aead::{Aead, KeyInit, Payload},
-    ChaCha20Poly1305,
-    Key,
-    Nonce,
+    ChaCha20Poly1305, Key, Nonce,
 };
 
 /// How long a single session is allowed to live before we force a rekey.

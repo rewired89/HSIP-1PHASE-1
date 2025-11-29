@@ -1,44 +1,141 @@
-# HSIP v0.2.0-mvp — Hyper Secure Internet Protocol
+HSIP Free MVP (Windows) – Early Preview
+=======================================
 
-**Repo:** `rewired89/HSIP-fresh`  
-**Product owner:** Nyx Systems LLC  
+What this is
+------------
 
-HSIP is a **consent-first secure session protocol over UDP**.
+This build is an early preview of HSIP for Windows.
 
-It is *not* a replacement for TCP, QUIC, or WireGuard.  
-Instead, HSIP is a **secure, consent-aware shim** that apps can stack under or next to existing transports when they need:
+Right now it gives you:
 
-- Strong, user-owned identity (no CAs, no PKI bureaucracy)
-- Mandatory consent **before** any application data flows
-- Encrypted UDP sessions with replay protection
-- Explicit capability tokens (“what is this peer allowed to do?”)
+- An HSIP daemon running locally (the "shield")
+- A tray icon that shows when the shield is ON/OFF
+- An optional HTTP/HTTPS gateway you can point your browser to
 
----
+This version is aimed at early technical testers, not non-technical users yet.
 
-## 1. What Works in v0.2.0-mvp
 
-This tag is the **Basic, free HSIP MVP**. It focuses on:
+What HSIP does in this build
+----------------------------
 
-1. **Identity & HELLO**
-2. **Consent layer (local JSON + UDP control plane)**
-3. **Encrypted sessions over UDP**
-4. **Encrypted PING (latency + integrity)**
-5. **Tokens & local device consent**
-6. **Tray-lite + local demo site**
+- Runs a local daemon on 127.0.0.1:8787 (`/status` HTTP API).
+- Shows a tray icon:
+  - Red square = HSIP daemon offline
+  - Green square = HSIP daemon answering and protecting
+- Applies basic guard logic to HSIP control traffic:
+  - Rate limits abusive peers
+  - Tracks blocked IPs and "tracker" hosts from a local file:
+    %USERPROFILE%\.hsip\tracker_blocklist.txt
 
-Everything below is already implemented and tested on Windows (Rust, Cargo).
+- Optional: HSIP Gateway (127.0.0.1:8080)
+  - Acts as a local HTTP/HTTPS proxy
+  - Blocks plain HTTP sites (e.g. http://neverssl.com)
+  - Allows HTTPS through, while logging and preparing for future
+    phishing / malware checks.
 
----
 
-## 2. Building the Project
+Installing
+----------
 
-Requirements:
+1. Run HSIP-Setup.exe
+2. Accept the default install path:
+   C:\Program Files\Nyx Systems\HSIP
 
-- Rust (stable)
-- `cargo`
-- Windows (MVP dev target; Linux should work with small tweaks)
+You will get:
 
-Build all crates:
+- hsip-cli.exe
+- hsip-tray.exe
+- README-USER.txt
 
-```bash
-cargo build
+
+Starting HSIP (daemon + tray)
+-----------------------------
+
+For now, startup is manual:
+
+1. Open a PowerShell window.
+2. Run:
+
+   cd "C:\Program Files\Nyx Systems\HSIP"
+   .\hsip-cli.exe daemon
+
+   Leave this window open (daemon is running in foreground).
+
+3. Open a second PowerShell window and run:
+
+   cd "C:\Program Files\Nyx Systems\HSIP"
+   .\hsip-tray.exe
+
+If everything is OK:
+
+- You should see a small square icon in the Windows tray.
+- Hovering it should show something like:
+
+  HSIP shield: ON
+  cipher=ChaCha20-Poly1305
+  sessions=1
+  blocked_connections=0
+
+You can also check the raw JSON status:
+
+   curl http://127.0.0.1:8787/status
+
+
+Using the HSIP Gateway (optional)
+---------------------------------
+
+This step is OPTIONAL and intended for testers.
+
+1. In one PowerShell window (with the daemon already running):
+
+   cd "C:\Program Files\Nyx Systems\HSIP"
+   .\hsip-gateway.exe
+
+   You should see:
+
+   [gateway] listening on 127.0.0.1:8080
+
+2. To test with curl:
+
+   curl -x http://127.0.0.1:8080 https://example.com/ -v
+
+   You should see logs in the gateway window like:
+
+   [gateway] CONNECT example.com:443
+   [gateway] GET / HTTP/1.1
+
+3. If you configure a browser proxy (advanced / optional):
+
+   - HTTP proxy: 127.0.0.1, port 8080
+   - Use this proxy for all protocols
+
+   Then HTTPS traffic will flow through HSIP Gateway.
+   Pure HTTP sites (like http://neverssl.com) will be blocked.
+
+
+Tracker blocklist
+-----------------
+
+You can add hostnames to:
+
+   %USERPROFILE%\.hsip\tracker_blocklist.txt
+
+One per line, for example:
+
+   ads.example.com
+   tracker.badcorp.io
+
+The gateway will log and block these when accessed through the proxy.
+
+
+Uninstalling
+------------
+
+1. Close the daemon and tray windows (Ctrl+C in PowerShell, or close the windows).
+2. Use "Add or Remove Programs" in Windows and uninstall "HSIP".
+3. You can optionally delete the config folder:
+
+   %USERPROFILE%\.hsip
+
+After uninstall, your system goes back to normal HTTPS/TCP/IP behavior.
+No network settings are modified automatically by this installer.

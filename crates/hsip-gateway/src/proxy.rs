@@ -1,91 +1,143 @@
 // crates/hsip-gateway/src/proxy.rs
+//
+// Minimal HTTP/HTTPS proxy with basic domain blocking.
+// Browser -> HSIP Gateway (this) -> Internet.
+//
+// - HTTP:  parses request line + Host header
+// - HTTPS: handles CONNECT and tunnels bytes
+// - Blocking: simple host-based denylist (neverssl.com, trackers, etc.)
 
-//! Minimal HTTP/HTTPS proxy for HSIP Web Gateway.
-//!
-//! Phase 2.0: proxy + basic blocking using classify.rs.
-
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream, ToSocketAddrs};
-use std::thread;
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
-use crate::classify::{classify, DecisionKind, ProtoKind, RequestInfo};
-
-/// Runtime config for the proxy.
 #[derive(Clone, Debug)]
-pub struct ProxyConfig {
-    /// Address to listen on, e.g. "127.0.0.1:8080".
+pub struct Config {
+    /// Where the gateway listens, e.g. "127.0.0.1:8080".
     pub listen_addr: String,
-    /// Connect timeout in milliseconds for upstream servers.
+    /// Upstream connect timeout in milliseconds.
     pub connect_timeout_ms: u64,
 }
 
-impl Default for ProxyConfig {
+impl Default for Config {
     fn default() -> Self {
         Self {
-            listen_addr: "127.0.0.1:8080".to_string(),
-            connect_timeout_ms: 5_000,
+            listen_addr: "127.0.0.1:8080".into(),
+            connect_timeout_ms: 5000,
         }
     }
 }
 
-/// Entry point: run the proxy loop (blocking).
-pub fn run_proxy(cfg: ProxyConfig) -> Result<()> {
-    let listener = TcpListener::bind(&cfg.listen_addr)
-        .with_context(|| format!("bind proxy on {}", cfg.listen_addr))?;
-    listener
-        .set_nonblocking(false)
-        .context("set_nonblocking(false)")?;
+/// Start the proxy loop (blocking).
+pub fn run_proxy(cfg: Config) -> Result<()> {
+    let listener = TcpListener::bind(&cfg.listen_addr)?;
+    println!("[gateway] listening on {}", cfg.listen_addr);
 
-    eprintln!("[gateway] HTTP proxy listening on {}", cfg.listen_addr);
+    loop {
+        let (client, addr) = listener.accept()?;
+        let cfg_clone = cfg.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = handle_client(client, addr, &cfg_clone) {
+                eprintln!("[gateway] client {addr} error: {e:?}");
+            }
+        });
+    }
+}
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                let cfg_clone = cfg.clone();
-                thread::spawn(move || {
-                    if let Err(e) = handle_client(stream, cfg_clone) {
-                        eprintln!("[gateway] client error: {e:#}");
-                    }
-                });
-            }
-            Err(e) => {
-                eprintln!("[gateway] accept error: {e}");
-            }
+/// Simple denylist of domains HSIP should block at the gateway.
+fn is_blocked_host(host: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+
+    // Very small starter list so you can see blocks.
+    const BLOCKED: &[&str] = &[
+        "neverssl.com",
+        "doubleclick.net",
+        "google-analytics.com",
+        "ads.google.com",
+        "tracking.test",
+    ];
+
+    // Exact match or subdomain match.
+    for b in BLOCKED {
+        let b = b.to_ascii_lowercase();
+        if host == b || host.ends_with(&format!(".{b}")) {
+            return true;
         }
     }
 
+    false
+}
+
+/// Send a small 403 response back to the browser.
+fn send_blocked_response(mut client: &mut TcpStream, host: &str) -> Result<()> {
+    let body = format!(
+        "<html><body><h1>HSIP blocked</h1>\
+         <p>Destination <code>{}</code> is blocked by HSIP gateway.</p>\
+         </body></html>",
+        host
+    );
+    let resp = format!(
+        "HTTP/1.1 403 Forbidden\r\n\
+         Content-Type: text/html; charset=utf-8\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\
+         \r\n\
+         {}",
+        body.len(),
+        body
+    );
+    client.write_all(resp.as_bytes())?;
+    client.flush()?;
     Ok(())
 }
 
-/// Handle a single client connection.
-fn handle_client(mut client: TcpStream, cfg: ProxyConfig) -> Result<()> {
+/// Extract host for blocking:
+/// - CONNECT: "example.com:443" -> "example.com"
+/// - HTTP: use `Host:` header if present.
+fn extract_host_for_block(method: &str, target: &str, req_str: &str) -> Option<String> {
+    let method_up = method.to_ascii_uppercase();
+
+    if method_up == "CONNECT" {
+        // CONNECT host:port
+        if let Some((h, _port)) = target.split_once(':') {
+            return Some(h.trim().to_string());
+        }
+        return Some(target.trim().to_string());
+    }
+
+    // For plain HTTP, prefer Host: header.
+    for line in req_str.lines() {
+        if let Some(rest) = line.strip_prefix("Host:") {
+            return Some(rest.trim().to_string());
+        }
+    }
+
+    None
+}
+
+fn handle_client(mut client: TcpStream, addr: SocketAddr, cfg: &Config) -> Result<()> {
     client
-        .set_read_timeout(Some(Duration::from_secs(10)))
+        .set_read_timeout(Some(Duration::from_millis(2000)))
         .ok();
     client
-        .set_write_timeout(Some(Duration::from_secs(10)))
+        .set_write_timeout(Some(Duration::from_millis(2000)))
         .ok();
 
-    // Read enough bytes to capture the HTTP request line + headers.
-    let mut buf = [0u8; 8192];
+    // Read the HTTP request (or CONNECT line).
     let mut req = Vec::new();
-
+    let mut buf = [0u8; 4096];
     loop {
         let n = client.read(&mut buf)?;
         if n == 0 {
             break;
         }
         req.extend_from_slice(&buf[..n]);
-
-        // Stop at end of headers: \r\n\r\n
         if req.windows(4).any(|w| w == b"\r\n\r\n") {
             break;
         }
-
         if req.len() > 64 * 1024 {
-            return Err(anyhow!("request header too large"));
+            return Err(anyhow!("request too large"));
         }
     }
 
@@ -93,253 +145,133 @@ fn handle_client(mut client: TcpStream, cfg: ProxyConfig) -> Result<()> {
         return Ok(());
     }
 
-    // Convert to an owned String so we don't keep a borrow of `req`.
-    let req_str: String = String::from_utf8_lossy(&req).into_owned();
+    // Use a clone so we don't keep a borrow on `req`.
+    let req_clone = req.clone();
+    let req_str = String::from_utf8_lossy(&req_clone);
 
-    // Parse the start line: METHOD SP TARGET SP VERSION
-    let mut lines = req_str.split("\r\n");
-    let start_line = lines.next().unwrap_or("");
-    let mut parts = start_line.split_whitespace();
-    let method = parts.next().unwrap_or("");
-    let target = parts.next().unwrap_or("");
-    let version = parts.next().unwrap_or("HTTP/1.1");
+    // First line: "METHOD target HTTP/1.1"
+    let first_line = req_str
+        .lines()
+        .next()
+        .ok_or_else(|| anyhow!("empty request"))?;
+    let (method, target, version) = parse_request_line(first_line)?;
 
+    // === BLOCKING LAYER ===
+    if let Some(host) = extract_host_for_block(&method, &target, &req_str) {
+        if is_blocked_host(&host) {
+            println!("[gateway] BLOCK {} from {}", host, addr);
+            send_blocked_response(&mut client, &host)?;
+            return Ok(());
+        }
+    }
+
+    // === ROUTING ===
     if method.eq_ignore_ascii_case("CONNECT") {
-        eprintln!("[gateway] CONNECT {target} {version}");
         handle_connect(method, target, version, req, client, cfg)
     } else {
-        eprintln!("[gateway] {method} {target} {version}");
         handle_plain_http(method, target, version, req, client, cfg)
     }
 }
 
-/// Handle HTTPS-style CONNECT tunnel.
+/// Parse "METHOD target HTTP/x.y".
+fn parse_request_line(line: &str) -> Result<(String, String, String)> {
+    let mut parts = line.split_whitespace();
+    let method = parts
+        .next()
+        .ok_or_else(|| anyhow!("no method in request line"))?;
+    let target = parts
+        .next()
+        .ok_or_else(|| anyhow!("no target in request line"))?;
+    let version = parts
+        .next()
+        .ok_or_else(|| anyhow!("no version in request line"))?;
+    Ok((method.to_string(), target.to_string(), version.to_string()))
+}
+
+/// Handle HTTPS CONNECT tunnel.
 fn handle_connect(
-    _method: &str,
-    target: &str,
-    version: &str,
-    _raw_req: Vec<u8>,
-    client: TcpStream,
-    cfg: ProxyConfig,
+    _method: String,
+    target: String,
+    _version: String,
+    _req: Vec<u8>,
+    mut client: TcpStream,
+    cfg: &Config,
 ) -> Result<()> {
-    // target is usually "host:port"
-    let mut parts = target.rsplitn(2, ':'); // split from the right
-    let port_str = parts.next().unwrap_or("443");
-    let host = parts.next().unwrap_or(target);
-    let port: u16 = port_str.parse().unwrap_or(443);
-
-    // === classification ===
-    let info = RequestInfo {
-        host: host.to_string(),
-        port,
-        path: "/".to_string(),
-        proto: ProtoKind::Https,
-    };
-    let decision = classify(&info);
-
-    if let DecisionKind::Block = decision.kind {
-        let reason = decision.reason.unwrap_or_else(|| "blocked".to_string());
-        eprintln!("[gateway] BLOCK CONNECT {}:{} → {reason}", host, port);
-        send_blocked_connect(client, version, &reason)?;
-        return Ok(());
-    }
-
-    let addr_str = format!("{host}:{port}");
-    let addr = addr_str
-        .to_socket_addrs()?
-        .next()
-        .ok_or_else(|| anyhow!("no address for {addr_str}"))?;
-
-    let mut server = TcpStream::connect_timeout(
-        &addr,
-        Duration::from_millis(cfg.connect_timeout_ms),
-    )
-    .with_context(|| format!("connect to upstream {addr_str}"))?;
-
+    // target like "example.com:443"
+    let addr = resolve_target(&target)?;
+    let mut server =
+        TcpStream::connect_timeout(&addr, Duration::from_millis(cfg.connect_timeout_ms))?;
     server
-        .set_read_timeout(Some(Duration::from_secs(30)))
+        .set_read_timeout(Some(Duration::from_millis(5000)))
         .ok();
     server
-        .set_write_timeout(Some(Duration::from_secs(30)))
+        .set_write_timeout(Some(Duration::from_millis(5000)))
         .ok();
 
-    // Tell the client the tunnel is established.
-    let resp = format!("{version} 200 Connection Established\r\n\r\n");
-    let mut client_write = client.try_clone()?;
-    client_write.write_all(resp.as_bytes())?;
-    client_write.flush()?;
+    // 200 Connection Established
+    let resp = b"HTTP/1.1 200 Connection Established\r\n\r\n";
+    client.write_all(resp)?;
+    client.flush()?;
 
-    // Now just tunnel bytes in both directions.
-    tunnel_bidirectional(client, server);
-
-    Ok(())
-}
-
-/// Handle normal HTTP requests (GET/POST/...)
-fn handle_plain_http(
-    _method: &str,
-    target: &str,
-    _version: &str,
-    raw_req: Vec<u8>,
-    client: TcpStream,
-    cfg: ProxyConfig,
-) -> Result<()> {
-    // Extract Host header to know where to connect.
-    let req_str = String::from_utf8_lossy(&raw_req).into_owned();
-    let host_header = extract_host(&req_str).ok_or_else(|| anyhow!("missing Host header"))?;
-
-    // Default port 80 unless host already includes ":port".
-    let (hostname, port) = split_host_port(&host_header, 80);
-
-    // Derive a path from the target (best effort).
-    let path = if let Some(idx) = target.find('/') {
-        target[idx..].to_string()
-    } else {
-        "/".to_string()
-    };
-
-    // === classification ===
-    let info = RequestInfo {
-        host: hostname.clone(),
-        port,
-        path,
-        proto: ProtoKind::Http,
-    };
-    let decision = classify(&info);
-
-    if let DecisionKind::Block = decision.kind {
-        let reason = decision.reason.unwrap_or_else(|| "blocked".to_string());
-        eprintln!(
-            "[gateway] BLOCK HTTP {}:{} {} → {reason}",
-            hostname, port, info.path
-        );
-        send_blocked_http(client, &reason)?;
-        return Ok(());
-    }
-
-    let addr_str = format!("{hostname}:{port}");
-    let addr = addr_str
-        .to_socket_addrs()?
-        .next()
-        .ok_or_else(|| anyhow!("no address for {addr_str}"))?;
-
-    let mut server = TcpStream::connect_timeout(
-        &addr,
-        Duration::from_millis(cfg.connect_timeout_ms),
-    )
-    .with_context(|| format!("connect to upstream {addr_str}"))?;
-
-    server
-        .set_read_timeout(Some(Duration::from_secs(30)))
-        .ok();
-    server
-        .set_write_timeout(Some(Duration::from_secs(30)))
-        .ok();
-
-    // Forward the initial request bytes (headers + maybe some body).
-    server.write_all(&raw_req)?;
-    server.flush()?;
-
-    // Now stream the rest in both directions.
-    tunnel_bidirectional(client, server);
-
-    Ok(())
-}
-
-/// Extract the Host header from an HTTP request string.
-fn extract_host(req: &str) -> Option<String> {
-    for line in req.lines() {
-        // Host: example.com
-        if let Some(rest) = line.strip_prefix("Host:") {
-            return Some(rest.trim().to_string());
+    // Tunnel bytes in both directions
+    std::thread::spawn({
+        let mut client = client.try_clone()?;
+        let mut server = server.try_clone()?;
+        move || {
+            let _ = std::io::copy(&mut client, &mut server);
         }
-        if let Some(rest) = line.strip_prefix("host:") {
-            return Some(rest.trim().to_string());
-        }
-    }
-    None
-}
-
-/// Split "host:port" into (host, port), or use default port if none present.
-fn split_host_port(host: &str, default_port: u16) -> (String, u16) {
-    if let Some(idx) = host.rfind(':') {
-        let (h, p) = host.split_at(idx);
-        if let Ok(port) = p.trim_start_matches(':').parse::<u16>() {
-            return (h.to_string(), port);
-        }
-    }
-    (host.to_string(), default_port)
-}
-
-/// Bi-directional copy between client and server.
-fn tunnel_bidirectional(client: TcpStream, server: TcpStream) {
-    // Clone streams so we can read/write in parallel.
-    let mut client_read = match client.try_clone() {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[gateway] client clone failed: {e}");
-            return;
-        }
-    };
-    let mut server_read = match server.try_clone() {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[gateway] server clone failed: {e}");
-            return;
-        }
-    };
-
-    // Thread: client -> server
-    let mut server_write = server;
-    let t1 = thread::spawn(move || {
-        let _ = std::io::copy(&mut client_read, &mut server_write);
     });
 
-    // Current thread: server -> client
-    let mut client_write = client;
-    let _ = std::io::copy(&mut server_read, &mut client_write);
-
-    let _ = t1.join();
-}
-
-/// Send a small HTTP 403 for blocked plain HTTP requests.
-fn send_blocked_http(mut client: TcpStream, reason: &str) -> Result<()> {
-    let body = format!(
-        "HSIP Web Gateway blocked this request.\nReason: {}\n",
-        reason
-    );
-    let resp = format!(
-        "HTTP/1.1 403 Forbidden\r\n\
-         Content-Type: text/plain; charset=utf-8\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\
-         \r\n\
-         {}",
-        body.len(),
-        body
-    );
-    client.write_all(resp.as_bytes())?;
-    client.flush()?;
+    let _ = std::io::copy(&mut server, &mut client);
     Ok(())
 }
 
-/// Send a minimal response for blocked CONNECT tunnels.
-fn send_blocked_connect(mut client: TcpStream, version: &str, reason: &str) -> Result<()> {
-    let body = format!(
-        "HSIP Web Gateway blocked this TLS tunnel.\nReason: {}\n",
-        reason
-    );
-    let resp = format!(
-        "{version} 403 Forbidden\r\n\
-         Content-Type: text/plain; charset=utf-8\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\
-         \r\n\
-         {}",
-        body.len(),
-        body
-    );
-    client.write_all(resp.as_bytes())?;
-    client.flush()?;
+/// Handle plain HTTP (GET, POST, etc.).
+fn handle_plain_http(
+    _method: String,
+    target: String,
+    _version: String,
+    req: Vec<u8>,
+    mut client: TcpStream,
+    cfg: &Config,
+) -> Result<()> {
+    // target can be absolute ("http://host/path") or relative ("/path").
+    // We prefer Host header, but for upstream TCP we just need host:port.
+    let host = extract_host_from_request(&req)?;
+
+    let addr = format!("{host}:80");
+    let addr = resolve_target(&addr)?;
+    let mut server =
+        TcpStream::connect_timeout(&addr, Duration::from_millis(cfg.connect_timeout_ms))?;
+    server
+        .set_read_timeout(Some(Duration::from_millis(5000)))
+        .ok();
+    server
+        .set_write_timeout(Some(Duration::from_millis(5000)))
+        .ok();
+
+    // Send original request to upstream.
+    server.write_all(&req)?;
+    server.flush()?;
+
+    // Relay response back to client.
+    let _ = std::io::copy(&mut server, &mut client);
     Ok(())
+}
+
+fn extract_host_from_request(req: &[u8]) -> Result<String> {
+    let s = String::from_utf8_lossy(req);
+    for line in s.lines() {
+        if let Some(rest) = line.strip_prefix("Host:") {
+            return Ok(rest.trim().to_string());
+        }
+    }
+    Err(anyhow!("no Host header in HTTP request"))
+}
+
+fn resolve_target(target: &str) -> Result<SocketAddr> {
+    let mut addrs = target.to_socket_addrs()?;
+    addrs
+        .next()
+        .ok_or_else(|| anyhow!("could not resolve {target}"))
 }

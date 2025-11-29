@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
-use std::fs;
 use clap::Args;
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use hsip_core::identity::{generate_keypair, peer_id_from_pubkey, vk_to_hex};
 use hsip_core::keystore::{load_keypair, save_keypair};
 use serde::{Deserialize, Serialize};
+use std::fs;
 
 #[derive(Args, Debug)]
 pub struct RotateArgs {

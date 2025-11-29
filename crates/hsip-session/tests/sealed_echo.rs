@@ -23,13 +23,15 @@ fn sealed_echo_roundtrip() {
     assert_eq!(s1, s2, "shared secrets must match");
 
     // Build sessions from the shared secret (same label on both ends)
-    let label = PeerLabel { label: b"TEST".to_vec() };
+    let label = PeerLabel {
+        label: b"TEST".to_vec(),
+    };
     let mut sess1 = Session::from_shared_secret(s1, Some(&label)).expect("sess1");
     let mut sess2 = Session::from_shared_secret(s2, Some(&label)).expect("sess2");
 
     // Seal/Open roundtrip
     let aad = b"type=TEST";
-    let pt  = b"hello world";
+    let pt = b"hello world";
 
     let ct = sess1.seal(aad, pt).expect("seal");
     let out = sess2.open(aad, &ct).expect("open");

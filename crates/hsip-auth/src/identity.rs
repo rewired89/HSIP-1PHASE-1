@@ -1,7 +1,7 @@
 use anyhow::Result;
+use base64::Engine;
 use ed25519_dalek::{SigningKey, VerifyingKey};
-use rand::rngs::OsRng;
-use base64::Engine; // brings .encode() into scope
+use rand::rngs::OsRng; // brings .encode() into scope
 
 use crate::keystore;
 

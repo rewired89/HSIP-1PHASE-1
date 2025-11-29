@@ -1,12 +1,12 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-use std::fs;
 use clap::{Args, Subcommand};
-use ed25519_dalek::{Signer, Verifier, Signature, SigningKey, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use hsip_core::identity::{peer_id_from_pubkey, vk_to_hex};
 use hsip_core::keystore::load_keypair;
 use serde::{Deserialize, Serialize};
+use std::fs;
 
 /// Capability set (MVP)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -89,8 +89,9 @@ pub fn verify_token(tok: &ConsentToken, issuer_vk: &VerifyingKey) -> Result<(), 
 
     let sig_hex = tok.sig_hex.strip_prefix("0x").unwrap_or(&tok.sig_hex);
     let sig_vec = hex::decode(sig_hex).map_err(|_| "bad sig hex".to_string())?;
-    let sig_arr: [u8; 64] =
-        sig_vec.try_into().map_err(|_| "sig must be 64 bytes".to_string())?;
+    let sig_arr: [u8; 64] = sig_vec
+        .try_into()
+        .map_err(|_| "sig must be 64 bytes".to_string())?;
     let sig = Signature::from_bytes(&sig_arr);
 
     issuer_vk

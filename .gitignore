@@ -27,3 +27,22 @@ dist/
 !crates/hsip-session/
 !crates/hsip-session/**
 
+# Rust
+/target
+**/target
+
+# Installers
+installer/*.exe
+installer/Output/
+
+# Windows debug
+*.pdb
+
+# VSCode
+.vscode/
+
+# Local logs
+*.log
+*.bak
+
+

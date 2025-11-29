@@ -12,7 +12,9 @@ pub fn load() -> Result<(SigningKey, VerifyingKey)> {
     let p = path();
     let s = fs::read_to_string(&p)?;
     let v: serde_json::Value = serde_json::from_str(&s)?;
-    let sk_hex = v["sk_hex"].as_str().ok_or_else(|| anyhow::anyhow!("missing sk_hex"))?;
+    let sk_hex = v["sk_hex"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("missing sk_hex"))?;
     let sk_bytes = hex::decode(sk_hex)?;
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&sk_bytes[..32]);
@@ -23,7 +25,9 @@ pub fn load() -> Result<(SigningKey, VerifyingKey)> {
 
 pub fn save(sk: &SigningKey, vk: &VerifyingKey) -> Result<()> {
     let p = path();
-    if let Some(parent) = p.parent() { fs::create_dir_all(parent).ok(); }
+    if let Some(parent) = p.parent() {
+        fs::create_dir_all(parent).ok();
+    }
     let json = serde_json::json!({
         "version": 1,
         "sk_hex": hex::encode(sk.to_bytes()),      // 32B seed

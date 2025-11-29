@@ -17,9 +17,7 @@ use core::fmt;
 
 use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 
-use crate::hello::{
-    HelloCapabilities, HelloError, HelloMessage, PeerId, SignedHello,
-};
+use crate::hello::{HelloCapabilities, HelloError, HelloMessage, PeerId, SignedHello};
 
 /// Fixed length of a HELLO packet on the wire.
 pub const HSIP_HELLO_WIRE_LEN: usize = 1 + 4 + 32 + 8 + 64;
@@ -63,8 +61,7 @@ impl fmt::Display for VerifiedHello {
         write!(
             f,
             "HELLO from peer {:?}, negotiated_caps=0x{:08x}",
-            self.signed.hello.peer_id.0,
-            self.negotiated_caps.0
+            self.signed.hello.peer_id.0, self.negotiated_caps.0
         )
     }
 }
@@ -116,25 +113,18 @@ pub fn decode_hello_packet(buf: &[u8]) -> Result<SignedHello, HelloError> {
 
     let protocol_version = buf[0];
 
-    let caps_raw = u32::from_le_bytes(
-        buf[1..5]
-            .try_into()
-            .expect("slice length checked above"),
-    );
+    let caps_raw = u32::from_le_bytes(buf[1..5].try_into().expect("slice length checked above"));
     let capabilities = HelloCapabilities(caps_raw);
 
     let mut peer_bytes = [0u8; 32];
     peer_bytes.copy_from_slice(&buf[5..37]);
     let peer_id = PeerId(peer_bytes);
 
-    let timestamp_ms = u64::from_le_bytes(
-        buf[37..45]
-            .try_into()
-            .expect("slice length checked above"),
-    );
+    let timestamp_ms =
+        u64::from_le_bytes(buf[37..45].try_into().expect("slice length checked above"));
 
     let mut sig_bytes = [0u8; 64];
-        sig_bytes.copy_from_slice(&buf[45..109]);
+    sig_bytes.copy_from_slice(&buf[45..109]);
     let sig = Signature::from_bytes(&sig_bytes);
 
     let hello = HelloMessage {
@@ -144,7 +134,10 @@ pub fn decode_hello_packet(buf: &[u8]) -> Result<SignedHello, HelloError> {
         timestamp_ms,
     };
 
-    Ok(SignedHello { hello, signature: sig })
+    Ok(SignedHello {
+        hello,
+        signature: sig,
+    })
 }
 
 /// Verify an incoming HELLO packet:
@@ -196,7 +189,9 @@ mod tests {
             .expect("HELLO should verify");
 
         assert!(
-            verified.negotiated_caps.supports(crate::hello::CAP_CONSENT_LAYER),
+            verified
+                .negotiated_caps
+                .supports(crate::hello::CAP_CONSENT_LAYER),
             "negotiated caps should include consent layer"
         );
     }

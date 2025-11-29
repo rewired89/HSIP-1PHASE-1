@@ -1,33 +1,27 @@
 // crates/hsip-gateway/src/main.rs
 
 mod proxy;
-mod classify;
-mod metrics;
 
-use crate::proxy::{run_proxy, ProxyConfig};
+use crate::proxy::{run_proxy, Config};
+use anyhow::Result;
 
-fn main() {
-    // Very small env-based config so you don't need flags yet.
-    let listen_addr =
+fn main() -> Result<()> {
+    // Allow overriding via env if you ever want:
+    //   HSIP_GATEWAY_LISTEN=0.0.0.0:8080
+    //   HSIP_GATEWAY_TIMEOUT_MS=8000
+    let listen =
         std::env::var("HSIP_GATEWAY_LISTEN").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
 
-    let connect_timeout_ms = std::env::var("HSIP_GATEWAY_CONNECT_TIMEOUT_MS")
+    let timeout_ms = std::env::var("HSIP_GATEWAY_TIMEOUT_MS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(5_000);
+        .unwrap_or(5000);
 
-    let cfg = ProxyConfig {
-        listen_addr,
-        connect_timeout_ms,
+    let cfg = Config {
+        listen_addr: listen,
+        connect_timeout_ms: timeout_ms,
     };
 
-    eprintln!(
-        "[gateway] starting HSIP Web Gateway on {} (timeout={}ms)",
-        cfg.listen_addr, cfg.connect_timeout_ms
-    );
-
-    if let Err(e) = run_proxy(cfg) {
-        eprintln!("[gateway] fatal error: {e:#}");
-        std::process::exit(1);
-    }
+    println!("[gateway] starting with cfg: {:?}", cfg);
+    run_proxy(cfg)
 }

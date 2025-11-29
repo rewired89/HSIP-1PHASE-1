@@ -1,108 +1,151 @@
-# 🌐 HSIP – Human-Secure Internet Protocol
+# HSIP
 
-**HSIP (Human-Secure Internet Protocol)** is a next-gen protocol that puts **users first**:
-privacy, consent, and accountability are built in.
+**Cryptographic consent protocol for secure peer-to-peer communication.**
 
-- 🔐 Privacy-first identities (Ed25519 PeerIDs)
-- ✅ Consent-driven data access (signed requests/responses)
-- 🧾 Auditable, hash-chained reputation (tamper-evident)
-- ⚡ Lightweight over UDP, decentralized, extensible
+HSIP enforces consent at the protocol level using capability-based tokens. Unlike application-layer solutions, consent violations are cryptographically impossible.
 
-## ✅ Implemented (status)
-- **Key mgmt**: generate/save Ed25519 keypairs, print PeerID/WhoAmI
-- **HELLO**: build/send + listen/verify over UDP
-- **Consent**:
-  - Build/verify `CONSENT_REQUEST` & `CONSENT_RESPONSE`
-  - Send/listen consent messages over UDP control port
-- **Reputation**:
-  - Append signed allow/deny decisions (hash-chained log)
-  - Verify chain & signatures
-  - Pretty-print log
+**Status:** Alpha (security audit in progress)  
+**Platform:** Windows 10/11 (Linux/Mac coming soon)
 
-## 🚀 Roadmap
-- Encrypted channels (Noise/TLS), multiplexing, NAT traversal
-- Gossip reputation + weighted trust scoring
-- Delegated & expiring consent; fine-grained scopes
-- PQ crypto (Kyber/Dilithium), ZK proofs
-- Dev UX: Rust lib, browser extension/proxy, dashboard
+---
 
-## Crates
+## Features
 
-# HSIP CLI (v0.2.0-mvp)
+**Core Protocol:**
+- Ed25519 identity (self-sovereign, no central registry)
+- Capability-based consent tokens (time-bounded, granular permissions)
+- X25519 + ChaCha20-Poly1305 session encryption
+- Reputation-based peer filtering
 
-## Quick Install (Windows)
-1. Download and run **HSIP-CLI-Setup.exe**.
-2. (Optional) Check **“Add HSIP to PATH”**.
-3. Start Menu → **HSIP Quickstart** to demo.
+**This Release Includes:**
+- Background daemon with HTTP API
+- System tray status indicator
+- CLI tools for testing
+- Optional local gateway (browser traffic inspection)
 
-## Quick Start (CLI)
+---
+
+## Quick Start
+
+**Install:**
 ```powershell
-hsip-cli --help
-hsip-cli init
-# Window 1:
-hsip-cli hello-listen --addr 0.0.0.0:40404
-# Window 2:
-hsip-cli hello-send --to 127.0.0.1:40404
-# Session:
-hsip-cli session-listen --addr 127.0.0.1:50505
-hsip-cli session-send   --to   127.0.0.1:50505 --packets 3
-# Ping:
-hsip-cli ping-listen --addr 127.0.0.1:51515
-hsip-cli ping --to 127.0.0.1:51515 --count 3
+# Download installer from Releases
+# Run HSIP-Setup.exe
+```
 
+**Verify it's running:**
+```powershell
+curl http://127.0.0.1:8787/status
+```
 
-## Quick local demo (Windows, dev build)
-From the repo root:
+**Should return:**
+```json
+{
+  "protected": true,
+  "active_sessions": 0,
+  "cipher": "ChaCha20-Poly1305"
+}
+```
 
-# 0) Build once
-cargo build -p hsip-core -p hsip-net -p hsip-cli
+---
 
-# 1) Generate a local identity (writes to %USERPROFILE%\.hsip)
-cargo run -p hsip-cli -- init
+## Use Cases
 
-# 2) HELLO handshake demo
-# Terminal 1
-cargo run -p hsip-cli -- handshake-listen --addr 127.0.0.1:9000
+**Telemedicine:** HIPAA-compliant consent tokens for patient data access
 
-# Terminal 2
-cargo run -p hsip-cli -- handshake-connect --addr 127.0.0.1:9000
+**IoT:** Device-to-device authorization with automatic expiration
 
-## Sealed UDP session demo
-This shows HSIP’s ephemeral X25519 + ChaCha20-Poly1305 session over UDP.
+**Finance:** PSD2/Open Banking consent verification
 
-# Terminal 1 – listener
-cargo run -p hsip-cli -- session-listen --addr 127.0.0.1:50505
+**Privacy Apps:** Protocol-level enforcement of user preferences
 
-# Terminal 2 – sender
-cargo run -p hsip-cli -- session-send --to 127.0.0.1:50505
+---
 
+## Architecture
+```
+hsip-cli daemon          # Core protocol daemon
+  ├─ :8787/status       # Status API
+  ├─ :8787/sessions     # Session management
+  └─ :8787/consent      # Consent token operations
 
-┌───────────────────────────────┐
-│        Application Layer       │
-│  (chat, storage, browser ext)  │
-└───────────────────────────────┘
-           ▲
-           │ sealed frames
-           ▼
-┌───────────────────────────────┐
-│      Ephemeral Session Layer   │
-│ X25519 → ChaCha20-Poly1305     │
-│ Nonce guard + integrity        │
-└───────────────────────────────┘
-           ▲
-           │ consent token
-           ▼
-┌───────────────────────────────┐
-│        Consent Layer           │
-│ Signed allow/deny decisions    │
-│ Scope-bound, TTL-based         │
-└───────────────────────────────┘
-           ▲
-           │ signed HELLO
-           ▼
-┌───────────────────────────────┐
-│         Identity Layer         │
-│ Ed25519 PeerIDs                │
-│ Self-sovereign keys            │
-└───────────────────────────────┘
+hsip-tray               # System tray indicator (optional)
+hsip-gateway            # Local proxy for testing (optional)
+```
 
+---
+
+## Documentation
+
+- [Protocol Specification](docs/protocol.md)
+- [API Reference](docs/api.md)
+- [Examples](examples/)
+- [Security Model](docs/security.md)
+
+---
+
+## Development
+
+**Build from source:**
+```powershell
+git clone https://github.com/rewired89/HSIP.git
+cd HSIP
+cargo build --release
+```
+
+**Run tests:**
+```powershell
+cargo test
+```
+
+**Contributions welcome.** See [CONTRIBUTING.md](CONTRIBUTING.md)
+
+---
+
+## Status
+
+**What works:**
+✅ Consent token issuance/verification  
+✅ Secure session establishment  
+✅ Reputation-based filtering  
+✅ Background daemon + API  
+
+**In progress:**
+🚧 Security audit (Mozilla MOSS)  
+🚧 Python/JavaScript SDKs  
+🚧 Post-quantum crypto option  
+
+**Planned:**
+📋 Session resumption  
+📋 Connection migration  
+📋 Multi-device identity  
+
+---
+
+## Security
+
+**Current status:** Alpha - not production ready
+
+**Audits:**
+- Mozilla security audit: In progress
+- Additional audits planned
+
+**Cryptography:**
+- Ed25519 (identity/signatures)
+- X25519 (key exchange)
+- ChaCha20-Poly1305 (encryption)
+
+**Report vulnerabilities:** security@hsip.dev
+
+---
+
+## License
+
+Apache 2.0 / MIT dual license
+
+---
+
+## Contact
+
+- GitHub: [Issues](https://github.com/rewired89/HSIP/issues)
+- Email: [your-email]
+- Documentation: [hsip.dev](https://hsip.dev)
