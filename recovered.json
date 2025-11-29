@@ -1,8 +1,0 @@
-{
-  "eph_pk_hex": "ae973d62a9ce0dbd0290d859b57801e7c421fd8c70aa5b2df491e7169b644c16",
-  "label": "CONSENTv1",
-  "peer_addr": "127.0.0.1:50505",
-  "role": "sender",
-  "transport": "udp",
-  "ts_ms": 1762120652877
-}

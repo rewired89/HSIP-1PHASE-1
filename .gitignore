@@ -45,4 +45,32 @@ installer/Output/
 *.log
 *.bak
 
+# Ignore example / test request/response files
+*.json
+*.txt
+reputation.log
+*.log
+demo*.ps1
+# Maybe others: sample files, burned tokens
+
+# Local demo/test junk in repo root
+req*.json
+resp.json
+consent_request.json
+consent_response.json
+rebind.json
+recovered.json
+revocation.json
+payload.txt
+sample.txt
+test.txt
+token.json
+token.txt
+reputation.log
+
+# Coverage artifacts
+build_rs_cov.profraw
+
+# Old tools
+tools/
 
