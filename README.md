@@ -76,10 +76,9 @@ hsip-gateway            # Local proxy for testing (optional)
 
 ## Documentation
 
-- [Protocol Specification](docs/protocol.md)
-- [API Reference](docs/api.md)
-- [Examples](examples/)
-- [Security Model](docs/security.md)
+- [Protocol Specification](docs/PROTOCOL_SPEC.md)
+- [API Reference](docs/API_REFERENCE.md)
+- [Examples](docs/EXAMPLES.md)
 
 ---
 
@@ -97,7 +96,7 @@ cargo build --release
 cargo test
 ```
 
-**Contributions welcome.** See [CONTRIBUTING.md](CONTRIBUTING.md)
+**Contributions welcome.** See [CONTRIBUTING] (docs/CONTRIBUTING.md)
 
 ---
 
@@ -134,7 +133,7 @@ cargo test
 - X25519 (key exchange)
 - ChaCha20-Poly1305 (encryption)
 
-**Report vulnerabilities:** security@hsip.dev
+**Report vulnerabilities:** nyxsystemsllc@gmail.com
 
 ---
 
@@ -147,5 +146,4 @@ Apache 2.0 / MIT dual license
 ## Contact
 
 - GitHub: [Issues](https://github.com/rewired89/HSIP/issues)
-- Email: [your-email]
-- Documentation: [hsip.dev](https://hsip.dev)
+- Email: nyxsystemsllc@gmail.com
