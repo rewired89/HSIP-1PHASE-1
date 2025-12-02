@@ -2,7 +2,7 @@
 
 HSIP is a consent-first communication protocol that gives users control over who can reach them, how, and for how long — using cryptographic proof instead of trust. The roadmap below highlights the major stages of development without disclosing internal strategy or implementation details.
 
-**Phase 1 — Core Foundation (Completed)**
+##Phase 1 — Core Foundation (Completed)
 Identity and key management
 Consent-based session initiation
 Encrypted transport layer
@@ -51,7 +51,7 @@ Additional security review
 This phase supports organizations that require long-term stability and guaranteed support.
 Long-Term Vision
 
-##HSIP aims to become a universal, consent-based communication layer for privacy-respecting systems.##
+HSIP aims to become a universal, consent-based communication layer for privacy-respecting systems.
 
 **Future areas of exploration include:**
 stronger cryptographic guarantees
