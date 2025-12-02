@@ -46,7 +46,6 @@ dirs = "5"
 x25519-dalek = "2"
 reqwest = { version = "0.12.24", features = ["json"] }
 tray-icon = "0.21"
-winrt-notification = "0.5.1"
 
 [build-dependencies]
 winres = "0.1"

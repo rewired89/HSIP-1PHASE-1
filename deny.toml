@@ -1,0 +1,82 @@
+# cargo-deny configuration for HSIP
+# https://embarkstudios.github.io/cargo-deny/
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+# Allow permissive licenses commonly used in Rust ecosystem
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unlicense",
+    "Zlib",
+]
+
+# Deny copyleft licenses that could contaminate the project
+deny = [
+    "GPL-1.0",
+    "GPL-2.0",
+    "GPL-3.0",
+    "AGPL-1.0",
+    "AGPL-3.0",
+    "LGPL-2.0",
+    "LGPL-2.1",
+    "LGPL-3.0",
+]
+
+# Allow workspace crates with custom license
+[[licenses.clarify]]
+name = "hsip-core"
+expression = "LicenseRef-HSIP-Community"
+license-files = [{ path = "LICENSE", hash = 0x00000000 }]
+
+[[licenses.clarify]]
+name = "hsip-session"
+expression = "LicenseRef-HSIP-Community"
+license-files = [{ path = "LICENSE", hash = 0x00000000 }]
+
+[[licenses.clarify]]
+name = "hsip-net"
+expression = "LicenseRef-HSIP-Community"
+license-files = [{ path = "LICENSE", hash = 0x00000000 }]
+
+[[licenses.clarify]]
+name = "hsip-reputation"
+expression = "LicenseRef-HSIP-Community"
+license-files = [{ path = "LICENSE", hash = 0x00000000 }]
+
+[[licenses.clarify]]
+name = "hsip-auth"
+expression = "LicenseRef-HSIP-Community"
+license-files = [{ path = "LICENSE", hash = 0x00000000 }]
+
+[[licenses.clarify]]
+name = "hsip-gateway"
+expression = "LicenseRef-HSIP-Community"
+license-files = [{ path = "LICENSE", hash = 0x00000000 }]
+
+[[licenses.clarify]]
+name = "hsip-cli"
+expression = "LicenseRef-HSIP-Community"
+license-files = [{ path = "LICENSE", hash = 0x00000000 }]
+
+[licenses.private]
+# Ignore license checks for local workspace members
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
