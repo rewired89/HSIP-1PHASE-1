@@ -139,7 +139,13 @@ cargo test
 
 ## License
 
-Apache 2.0 / MIT dual license
+**HSIP Community License** (Non-Commercial Use Only)
+
+- ✅ **FREE for:** Personal, educational, research, and open-source projects
+- ❌ **Requires Enterprise License for:** Commercial use, business operations, paid services
+
+See [LICENSE](./LICENSE) file for full terms.
+For commercial licensing: nyxsystemsllc@gmail.com
 
 ---
 
