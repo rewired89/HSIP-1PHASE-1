@@ -1,4 +1,4 @@
-HSIP Sustainability Plan (Safe Version)
+HSIP Sustainability Plan
 1. Project Overview
 
 HSIP is an open, consent-first communication protocol.
