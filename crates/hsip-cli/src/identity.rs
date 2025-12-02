@@ -1,4 +1,3 @@
-use anyhow::Result;
 use axum::{
     extract::DefaultBodyLimit,
     response::{Html, IntoResponse},

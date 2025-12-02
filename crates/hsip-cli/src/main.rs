@@ -18,7 +18,6 @@ use hsip_net::udp::hello::{listen_hello, send_hello};
 use hsip_net::udp::{send_consent_request, send_consent_response};
 
 // NEW: tiny local consent HTTP + helpers (user-mode, no admin)
-use std::io::Read;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -1630,7 +1629,7 @@ fn run_demo_site() {
                     );
                     let _ = req.respond(resp);
                 } else {
-                    let mut resp =
+                    let resp =
                         Response::from_string("Not Found").with_status_code(StatusCode(404));
                     let _ = req.respond(resp);
                 }
@@ -1864,10 +1863,10 @@ fn start_local_consent_http() {
                     } else if method == "GET" && url.starts_with("/verify?") {
                         // Quick GET variant: /verify?token=...
                         let token = url
-                            .splitn(2, '?')
-                            .nth(1)
+                            .split_once('?')
+                            .map(|x| x.1)
                             .and_then(|q| q.split('&').find(|kv| kv.starts_with("token=")))
-                            .and_then(|kv| kv.splitn(2, '=').nth(1))
+                            .and_then(|kv| kv.split_once('=').map(|x| x.1))
                             .map(|v| {
                                 percent_encoding::percent_decode_str(v)
                                     .decode_utf8_lossy()
@@ -1941,7 +1940,7 @@ fn start_local_consent_http() {
 // ========================= LOCAL TOKEN VERIFIER =========================
 
 fn verify_local_token_str(tok_in: &str) -> anyhow::Result<String> {
-    use anyhow::{anyhow, Result};
+    use anyhow::anyhow;
     use base64::Engine;
     use ed25519_dalek::{Signature, VerifyingKey};
     use serde::Deserialize;
@@ -1958,6 +1957,7 @@ fn verify_local_token_str(tok_in: &str) -> anyhow::Result<String> {
         iss: String,
         sub: String,
         aud: String,
+        #[allow(dead_code)]
         iat: i64,
         exp: i64,
         scopes: Vec<String>,

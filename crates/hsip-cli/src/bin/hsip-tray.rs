@@ -2,12 +2,12 @@ use anyhow::Result;
 use serde::Deserialize;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::process::Command;
 use std::thread;
 use std::time::Duration;
 use tray_icon::{TrayIcon, TrayIconBuilder};
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct Status {
     protected: bool,
     active_sessions: u32,
@@ -52,7 +52,7 @@ fn main() -> Result<()> {
     let green = solid_icon(16, 16, [0, 200, 0, 255]);
 
     // IMPORTANT: tray-icon 0.21.x expects an Icon (not Option) on with_icon
-    let mut tray: TrayIcon = TrayIconBuilder::new()
+    let tray: TrayIcon = TrayIconBuilder::new()
         .with_tooltip("HSIP: starting…")
         .with_icon(red.clone())
         .build()
@@ -79,6 +79,7 @@ fn main() -> Result<()> {
     }
 }
 
+#[allow(dead_code)]
 fn run_tray_ui() -> anyhow::Result<()> {
     // TODO: move your existing tray setup/start code here.
     // For now, keep the process alive:

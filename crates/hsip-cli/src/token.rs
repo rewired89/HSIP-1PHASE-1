@@ -3,10 +3,9 @@
 
 use clap::{Args, Subcommand};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use hsip_core::identity::{peer_id_from_pubkey, vk_to_hex};
+use hsip_core::identity::peer_id_from_pubkey;
 use hsip_core::keystore::load_keypair;
 use serde::{Deserialize, Serialize};
-use std::fs;
 
 /// Capability set (MVP)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
