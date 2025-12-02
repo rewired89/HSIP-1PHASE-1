@@ -1,5 +1,3 @@
-// crates/hsip-cli/src/commands/handshake.rs
-
 use anyhow::Result;
 use hsip_net::handshake_io::{recv_and_verify_hello, send_hello};
 

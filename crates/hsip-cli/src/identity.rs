@@ -1,4 +1,3 @@
-// crates/hsip-cli/src/identity.rs
 use anyhow::Result;
 use axum::{
     extract::DefaultBodyLimit,

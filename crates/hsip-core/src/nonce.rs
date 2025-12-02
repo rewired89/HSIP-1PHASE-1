@@ -1,6 +1,6 @@
 //! Nonce anti-replay logic for HSIP.
 //!
-//! We enforce:
+//! I enforce:
 //!   * monotonic nonces (they must usually increase)
 //!   * a 64-packet sliding window for out-of-order UDP
 //!   * replay rejection (reject any nonce we've seen before)
@@ -35,7 +35,7 @@ impl std::error::Error for NonceError {}
 
 /// 64-packet sliding window anti-replay.
 ///
-/// We track:
+/// I track:
 ///   * `max_seen`: highest nonce observed so far
 ///   * `bitmap`: 64-bit window of which nonces in [max_seen-63, max_seen]
 ///      have been seen (bit 0 = max_seen, bit 1 = max_seen-1, ...)
@@ -139,7 +139,7 @@ mod tests {
 
         assert!(w.check_and_update(10).is_ok());
         assert!(w.check_and_update(12).is_ok());
-        assert!(w.check_and_update(11).is_ok()); // within window, not seen yet
+        assert!(w.check_and_update(11).is_ok());
     }
 
     #[test]
@@ -162,8 +162,7 @@ mod tests {
         assert!(w.check_and_update(120).is_ok()); // diff 20
         assert!(w.check_and_update(160).is_ok()); // diff 40
 
-        // Now max_seen = 160; window covers [97..160].
-        // 96 is just outside and should be TooOld.
+        // Now max_seen = 160;
         let err = w.check_and_update(96).unwrap_err();
         assert_eq!(err, NonceError::TooOld);
     }

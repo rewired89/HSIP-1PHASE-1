@@ -1,5 +1,3 @@
-// crates/hsip-gateway/src/main.rs
-
 mod proxy;
 
 use crate::proxy::{run_proxy, Config};

@@ -1,5 +1,3 @@
-// crates/hsip-gateway/src/proxy.rs
-//
 // Minimal HTTP/HTTPS proxy with basic domain blocking.
 // Browser -> HSIP Gateway (this) -> Internet.
 //

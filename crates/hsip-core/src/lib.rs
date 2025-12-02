@@ -1,5 +1,3 @@
-//! Core HSIP types and helpers.
-
 #![allow(clippy::doc_markdown)]
 #![allow(clippy::missing_const_for_fn)]
 

@@ -13,13 +13,12 @@ use chacha20poly1305::{
     ChaCha20Poly1305, Key, Nonce,
 };
 
-/// How long a single session is allowed to live before we force a rekey.
-const MAX_SESSION_AGE: Duration = Duration::from_secs(60 * 60); // 1 hour
+/// How long a single session is allowed to live before it force a rekey.
+const MAX_SESSION_AGE: Duration = Duration::from_secs(60 * 60);
 
-/// How many packets we allow under a single key before forcing rekey.
+/// How many packets is allow under a single key before forcing rekey.
 const MAX_PACKETS_BEFORE_REKEY: u64 = 100_000;
 
-/// Safety ceiling: if we ever hit this, something is very wrong.
 const MAX_NONCE_COUNTER: u64 = u64::MAX - 1;
 
 /// Errors that can occur when sealing/opening HSIP session data.
@@ -31,7 +30,7 @@ pub enum SessionError {
     /// Underlying AEAD failure (encrypt/decrypt).
     Crypto(&'static str),
 
-    /// We ran out of safe nonce space under a single key.
+    /// If it ran out of safe nonce space under a single key.
     NonceExhausted,
 
     /// Policy says we must rekey (age or packet-count limit).
@@ -57,7 +56,7 @@ impl AeadMeta {
 /// Layout: [ 0 0 0 0 | counter_be(8 bytes) ]
 ///
 /// NOTE: This is low-level and does **not** enforce monotonicity on its own.
-/// The caller must ensure `counter` never repeats under a given key.
+/// The caller must ensure 'counter' never repeats under a given key.
 fn nonce_from_counter(counter: u64) -> Nonce {
     let mut n = [0u8; 12];
     // put the counter in the last 8 bytes (big-endian)
@@ -65,10 +64,10 @@ fn nonce_from_counter(counter: u64) -> Nonce {
     *Nonce::from_slice(&n)
 }
 
-/// Seal `plaintext` with ChaCha20-Poly1305 using a 32-byte key and a
+/// Seal 'plaintext' with ChaCha20-Poly1305 using a 32-byte key and a
 /// counter-based nonce.
 ///
-/// The caller is responsible for incrementing `meta.nonce_counter` per packet
+/// The caller is responsible for incrementing 'meta.nonce_counter' per packet
 /// and never reusing the same (key, counter) pair.
 pub fn seal_with_counter(
     key_bytes: &[u8; 32],

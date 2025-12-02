@@ -1,15 +1,3 @@
-// crates/hsip-gateway/src/metrics.rs
-
-//! Simple on-disk metrics for HSIP Web Gateway.
-//!
-//! File: ~/.hsip/gateway_metrics.json
-//! {
-//!   "blocked_trackers": 12,
-//!   "last_host": "doubleclick.net",
-//!   "last_reason": "tracker_domain:doubleclick.net",
-//!   "updated_ms": 1731970000000
-//! }
-
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;

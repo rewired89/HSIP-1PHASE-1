@@ -1,8 +1,3 @@
-//! hsip-net config loader
-//!
-//! Reads HSIP configuration from `$HOME/.hsip/config.toml` or environment variables.
-//! Used by hsip-cli and hsip-net for identity, ports, and policy defaults.
-
 use std::fs;
 use std::path::PathBuf;
 use serde::Deserialize;

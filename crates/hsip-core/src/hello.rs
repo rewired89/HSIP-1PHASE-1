@@ -6,7 +6,6 @@ use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
 /// Minimal PeerId for HELLO.
-/// Later you can wire this to your real identity module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PeerId(pub [u8; 32]);
 

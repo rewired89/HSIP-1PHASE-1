@@ -1,5 +1,3 @@
-// crates/hsip-net/src/udp.rs
-
 use anyhow::{anyhow, Context, Result};
 use std::net::UdpSocket;
 use std::path::PathBuf;

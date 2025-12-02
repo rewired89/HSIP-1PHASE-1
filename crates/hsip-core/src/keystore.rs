@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 struct StoredKey {
     pub_hex: String,
-    priv_hex: String, // plaintext for now (dev mode)
+    priv_hex: String,
 }
 
 #[must_use]

@@ -1,76 +1,98 @@
-Code standards:
+# Contributing to HSIP
 
-    Follow Rust conventions (use cargo fmt)
-    Add tests for new features
-    Update documentation as needed
-    No breaking changes without discussion
+Thank you for your interest in contributing to HSIP (Hyper-Secure Internet Protocol)
 
-2. Documentation Contributions
+HSIP is a community-driven privacy project that welcomes contributions from developers, security researchers, and privacy advocates.
+
+---
+
+## Quick Start
+
+### Code Standards
+
+- Follow Rust conventions (use `cargo fmt`)
+- Add tests for new features
+- Update documentation as needed
+- No breaking changes without discussion
+
+---
+
+## 1. Documentation Contributions
 
 We welcome improvements to:
 
-    README.md
-    TESTING.md
-    docs/PROTOCOL_SPEC.md
-    docs/API_REFERENCE.md
-    docs/EXAMPLES.md
-    Code comments and docstrings
+- README.md
+- TESTING.md
+- docs/PROTOCOL_SPEC.md
+- docs/API_REFERENCE.md
+- docs/EXAMPLES.md
+- Code comments and docstrings
 
-How to contribute docs:
+**How to contribute docs:**
 
-    Fix typos or unclear explanations
-    Add missing examples
-    Improve command descriptions
-    Translate documentation (future)
+- Fix typos or unclear explanations
+- Add missing examples
+- Improve command descriptions
+- Translate documentation (future)
 
-3. Bug Reports
+---
+
+## 2. Bug Reports
 
 When reporting bugs, include:
 
-    HSIP version (cargo run --bin hsip-cli -- --version)
-    Operating system (Windows 10/11, Linux distro, macOS version)
-    Rust version (rustc --version)
-    Steps to reproduce
-    Expected vs actual behavior
-    Error messages or logs (RUST_LOG=debug)
+- HSIP version (`cargo run --bin hsip-cli -- --version`)
+- Operating system (Windows 10/11, Linux distro, macOS version)
+- Rust version (`rustc --version`)
+- Steps to reproduce
+- Expected vs actual behavior
+- Error messages or logs (`RUST_LOG=debug`)
 
-Open an issue: https://github.com/rewired89/HSIP-1PHASE/issues/new
-4. Feature Requests
+**Open an issue:** https://github.com/rewired89/HSIP-1PHASE/issues/new
+
+---
+
+## 3. Feature Requests
 
 We're open to new ideas! Before requesting:
 
-    Check if it already exists in Issues
-    Explain the use case and why it's needed
-    Consider if it fits HSIP's privacy/consent focus
+- Check if it already exists in Issues
+- Explain the use case and why it's needed
+- Consider if it fits HSIP's privacy/consent focus
 
-Feature categories:
+**Feature categories:**
 
-    Core protocol improvements
-    New cryptographic features
-    Platform support (Linux, macOS, mobile)
-    UI/UX enhancements
-    Integration with other tools
+- Core protocol improvements
+- New cryptographic features
+- Platform support (Linux, macOS, mobile)
+- UI/UX enhancements
+- Integration with other tools
 
-Contribution Guidelines
-✅ We Accept:
+---
 
-    Bug fixes
-    Documentation improvements
-    Test coverage improvements
-    Performance optimizations
-    Security enhancements
-    Platform compatibility fixes
-    Example code and tutorials
+## Contribution Guidelines
 
-❌ We Generally Reject:
+### ✅ We Accept:
 
-    Breaking changes without discussion
-    Features that weaken security/privacy
-    Dependencies with restrictive licenses
-    Code that violates consent principles
-    Unmaintained or bloated dependencies
+- Bug fixes
+- Documentation improvements
+- Test coverage improvements
+- Performance optimizations
+- Security enhancements
+- Platform compatibility fixes
+- Example code and tutorials
 
-Testing Requirements
+### ❌ We Generally Reject:
+
+- Breaking changes without discussion
+- Features that weaken security/privacy
+- Dependencies with restrictive licenses
+- Code that violates consent principles
+- Unmaintained or bloated dependencies
+
+---
+
+## Testing Requirements
 
 All contributions must pass:
 
@@ -89,7 +111,7 @@ cargo fmt --all
 Pull Request Process
 
     Create PR with clear title and description
-    Link related issue (e.g., "Fixes #42")
+    Link related issue (ex: "Fixes #42")
     Wait for review (we'll respond within 3-5 days)
     Address feedback if requested
     Merge once approved
@@ -102,7 +124,6 @@ PR title format:
     Test: test coverage for X
 
 Community Guidelines
-
 Be respectful:
 
     Constructive feedback only
@@ -133,7 +154,6 @@ By contributing to HSIP, you agree that:
 Open Source & Community Projects
 
 If you're building an open source project using HSIP:
-
 ✅ You're covered under the Community License!
 
 Examples of accepted use:
@@ -170,7 +190,7 @@ For security vulnerabilities:
 
     Do NOT open public issues
     Email: nyxsystemsllc@gmail.com with subject "HSIP Security"
-    We'll respond within 48 hours
+    I'll respond within 48 hours
 
 Development Setup
 
@@ -188,9 +208,11 @@ cargo build --workspace
 # 3. Run tests
 cargo test --workspace
 
-# 4. Try CLI
+# 4. Try CLI (run each command separately)
 cargo run --bin hsip-cli -- init
+
 cargo run --bin hsip-cli -- whoami
+
 cargo run --bin hsip-cli -- diag
 
 # 5. Check formatting
@@ -200,7 +222,6 @@ cargo fmt --all --check
 cargo clippy --workspace
 
 Roadmap
-
 Current priorities:
 
     Complete Windows installer
@@ -208,14 +229,6 @@ Current priorities:
     Add more examples
     Linux/macOS compatibility
     Documentation translations
-
-Future plans:
-
-    Mobile support (iOS/Android)
-    Browser extension
-    Post-quantum cryptography (Kyber)
-    Multi-device sync
-    Session resumption
 
 See our GitHub Issues for specific tasks.
 Recognition
@@ -230,7 +243,7 @@ Top contributors may receive:
 
     Early access to new features
     Direct communication channel
-    Potential internship/employment opportunities in a future
+    Potential internship/employment opportunities at Nyx Systems
 
 Contact
 
@@ -239,3 +252,5 @@ Contact
     Licensing: nyxsystemsllc@gmail.com
     Security: nyxsystemsllc@gmail.com (subject: "HSIP Security")
     Enterprise: nyxsystemsllc@gmail.com (subject: "HSIP Enterprise License")
+
+Thank you for helping make the internet more private and secure!🔒

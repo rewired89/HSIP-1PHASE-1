@@ -1,5 +1,3 @@
-// crates/hsip-net/src/guard.rs
-
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::net::IpAddr;
