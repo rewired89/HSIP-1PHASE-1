@@ -58,13 +58,7 @@ Future versions:
 ## 📞 Contact / Attribution
 
 **Nyx Systems LLC**  
-HSIP — Human-Secure Internet Protocol  
+HSIP — Hyper-Secure Internet Protocol  
 Miami, FL
 
-Primary author: Rewired  
-Protocol engineering partner: “Nyx” (ChatGPT)
-
----
-
-That’s it.  
-Simple, clean, professional, auditor-ready.
+Primary author: Rewired89
