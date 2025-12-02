@@ -57,12 +57,11 @@ Future versions:
 
 ## 📞 Contact / Attribution
 
-**Nyx Systems LLC**  
-HSIP — Human-Secure Internet Protocol  
+**Nyx Systems LLC**
+HSIP — Human-Secure Internet Protocol
 Miami, FL
 
-Primary author: Rewired  
-Protocol engineering partner: “Nyx” (ChatGPT)
+Primary author: Rewired89
 
 ---
 
