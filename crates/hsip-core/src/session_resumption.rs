@@ -36,7 +36,7 @@ impl SessionTicketKey {
     }
 
     pub fn as_key(&self) -> Key {
-        Key::from_slice(&self.0).to_owned()
+        self.0.into()
     }
 }
 
@@ -172,12 +172,12 @@ pub fn create_session_ticket(
     // Random 96-bit nonce
     let mut nonce_bytes = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce: Nonce = nonce_bytes.into();
 
     // Encrypt
     let mut ct = inner_bytes.to_vec();
     cipher
-        .encrypt_in_place(nonce, TICKET_AAD, &mut ct)
+        .encrypt_in_place(&nonce, TICKET_AAD, &mut ct)
         .map_err(|_| SessionTicketError::DecryptFailed)?;
 
     // Final ticket: nonce || ciphertext+tag
@@ -194,7 +194,7 @@ pub fn create_session_ticket(
 ///   * issued_at/expires_at v.s. now_ms
 pub fn decrypt_session_ticket(
     key: &SessionTicketKey,
-    cfg: &SessionTicketConfig,
+    _cfg: &SessionTicketConfig,
     ticket: &[u8],
     now_ms: u64,
 ) -> Result<SessionTicketData, SessionTicketError> {
@@ -205,7 +205,8 @@ pub fn decrypt_session_ticket(
 
     let (nonce_part, ct_part) = ticket.split_at(12);
 
-    let nonce = Nonce::from_slice(nonce_part);
+    let nonce_array: [u8; 12] = nonce_part.try_into().unwrap();
+    let nonce: Nonce = nonce_array.into();
 
     let key_bytes = key.as_key();
     let cipher = ChaCha20Poly1305::new(&key_bytes);
@@ -213,7 +214,7 @@ pub fn decrypt_session_ticket(
     let mut buf = ct_part.to_vec();
 
     cipher
-        .decrypt_in_place(nonce, TICKET_AAD, &mut buf)
+        .decrypt_in_place(&nonce, TICKET_AAD, &mut buf)
         .map_err(|_| SessionTicketError::DecryptFailed)?;
 
     if buf.len() != INNER_LEN {

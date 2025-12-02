@@ -68,7 +68,7 @@ fn is_blocked_host(host: &str) -> bool {
 }
 
 /// Send a small 403 response back to the browser.
-fn send_blocked_response(mut client: &mut TcpStream, host: &str) -> Result<()> {
+fn send_blocked_response(client: &mut TcpStream, host: &str) -> Result<()> {
     let body = format!(
         "<html><body><h1>HSIP blocked</h1>\
          <p>Destination <code>{}</code> is blocked by HSIP gateway.</p>\
@@ -227,7 +227,7 @@ fn handle_connect(
 /// Handle plain HTTP (GET, POST, etc.).
 fn handle_plain_http(
     _method: String,
-    target: String,
+    _target: String,
     _version: String,
     req: Vec<u8>,
     mut client: TcpStream,

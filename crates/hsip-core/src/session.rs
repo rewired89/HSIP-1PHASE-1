@@ -61,7 +61,7 @@ fn nonce_from_counter(counter: u64) -> Nonce {
     let mut n = [0u8; 12];
     // put the counter in the last 8 bytes (big-endian)
     n[4..].copy_from_slice(&counter.to_be_bytes());
-    *Nonce::from_slice(&n)
+    n.into()
 }
 
 /// Seal 'plaintext' with ChaCha20-Poly1305 using a 32-byte key and a
@@ -74,7 +74,7 @@ pub fn seal_with_counter(
     meta: &AeadMeta,
     plaintext: &[u8],
 ) -> Result<Vec<u8>, SessionError> {
-    let key = *Key::from_slice(key_bytes);
+    let key: Key = (*key_bytes).into();
     let cipher = ChaCha20Poly1305::new(&key);
     let nonce = nonce_from_counter(meta.nonce_counter);
 
@@ -103,7 +103,7 @@ pub fn open_with_counter(
         });
     }
 
-    let key = *Key::from_slice(key_bytes);
+    let key: Key = (*key_bytes).into();
     let cipher = ChaCha20Poly1305::new(&key);
     let nonce = nonce_from_counter(meta.nonce_counter);
 
@@ -142,7 +142,7 @@ impl SessionNonceSalt {
         bytes[0..4].copy_from_slice(&self.salt);
         bytes[4..12].copy_from_slice(&counter.to_be_bytes());
 
-        Ok(*Nonce::from_slice(&bytes))
+        Ok(bytes.into())
     }
 }
 
@@ -164,7 +164,7 @@ impl ManagedSession {
     /// - `key_bytes`: 32-byte AEAD key derived from the handshake
     /// - `nonce_salt`: 4 random bytes from the handshake (per-session)
     pub fn new(key_bytes: &[u8; 32], nonce_salt: [u8; 4]) -> Self {
-        let key = *Key::from_slice(key_bytes);
+        let key: Key = (*key_bytes).into();
         let cipher = ChaCha20Poly1305::new(&key);
         let nonce_salt = SessionNonceSalt::new(nonce_salt);
 

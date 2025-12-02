@@ -4,8 +4,8 @@
 //! It just tells you:
 //!   - "time to send a ping"
 //!   - "this session is dead, kill it"
-//
-//! Your UDP layer / hsip-net decides how to encode PING/PONG frames.
+//!
+//!     Your UDP layer / hsip-net decides how to encode PING/PONG frames.
 
 use core::fmt;
 

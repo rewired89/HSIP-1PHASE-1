@@ -38,11 +38,17 @@ impl std::error::Error for NonceError {}
 /// I track:
 ///   * `max_seen`: highest nonce observed so far
 ///   * `bitmap`: 64-bit window of which nonces in [max_seen-63, max_seen]
-///      have been seen (bit 0 = max_seen, bit 1 = max_seen-1, ...)
+///     have been seen (bit 0 = max_seen, bit 1 = max_seen-1, ...)
 #[derive(Debug, Clone, Copy)]
 pub struct NonceWindow {
     max_seen: u64,
     bitmap: u64,
+}
+
+impl Default for NonceWindow {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl NonceWindow {
