@@ -37,60 +37,59 @@ pub struct RevocationRecord {
     pub sig_hex: String,
 }
 
-// -----------------------------------------------------------------------------
-// Public (main.rs compatible)
-// -----------------------------------------------------------------------------
-
+// Generate new keypair and create cryptographic rebinding proof
 pub fn rotate_key_make_rebind() -> (SigningKey, VerifyingKey, RebindProof) {
-    let (old_sk, old_vk) = load_keypair().expect("load identity");
-    let (new_sk, new_vk) = generate_keypair();
+    let (previous_signing_key, previous_verifying_key) = 
+        load_keypair().expect("Failed to load existing identity");
+    let (replacement_signing_key, replacement_verifying_key) = generate_keypair();
 
-    let msg = new_vk.to_bytes();
-    let sig = old_sk.sign(&msg);
-    save_keypair(&new_sk, &new_vk).expect("save keystore");
+    let binding_message = replacement_verifying_key.to_bytes();
+    let binding_signature = previous_signing_key.sign(&binding_message);
+    
+    save_keypair(&replacement_signing_key, &replacement_verifying_key)
+        .expect("Failed to persist new keystore");
 
-    let proof = RebindProof {
-        old_peer_id: peer_id_from_pubkey(&old_vk),
-        new_peer_id: peer_id_from_pubkey(&new_vk),
-        new_vk_hex: vk_to_hex(&new_vk),
-        sig_hex: hex::encode(sig.to_bytes()),
+    let rebind_proof = RebindProof {
+        old_peer_id: peer_id_from_pubkey(&previous_verifying_key),
+        new_peer_id: peer_id_from_pubkey(&replacement_verifying_key),
+        new_vk_hex: vk_to_hex(&replacement_verifying_key),
+        sig_hex: hex::encode(binding_signature.to_bytes()),
     };
 
-    (new_sk, new_vk, proof)
+    (replacement_signing_key, replacement_verifying_key, rebind_proof)
 }
 
-pub fn revoke_current(reason: String) -> RevocationRecord {
-    let (sk, vk) = load_keypair().expect("load identity");
-    let ts = now_ms();
+// Create signed revocation record for current identity
+pub fn revoke_current(revocation_reason: String) -> RevocationRecord {
+    let (signing_key, verifying_key) = 
+        load_keypair().expect("Failed to load identity for revocation");
+    let revocation_timestamp = current_timestamp_ms();
 
-    let mut msg = reason.as_bytes().to_vec();
-    msg.extend_from_slice(&ts.to_le_bytes());
-    let sig = sk.sign(&msg);
+    let mut signed_payload = revocation_reason.as_bytes().to_vec();
+    signed_payload.extend_from_slice(&revocation_timestamp.to_le_bytes());
+    let revocation_signature = signing_key.sign(&signed_payload);
 
     RevocationRecord {
-        peer_id: peer_id_from_pubkey(&vk),
-        reason,
-        ts_ms: ts,
-        sig_hex: hex::encode(sig.to_bytes()),
+        peer_id: peer_id_from_pubkey(&verifying_key),
+        reason: revocation_reason,
+        ts_ms: revocation_timestamp,
+        sig_hex: hex::encode(revocation_signature.to_bytes()),
     }
 }
 
+// Serialize value to JSON and write to file
 pub fn write_json<P: AsRef<std::path::Path>, T: serde::Serialize>(
-    path: P,
-    value: &T,
+    file_path: P,
+    data: &T,
 ) -> Result<(), String> {
-    let s = serde_json::to_string_pretty(value).unwrap();
-    fs::write(path, s).map_err(|e| format!("write json: {e}"))
+    let json_string = serde_json::to_string_pretty(data).unwrap();
+    fs::write(file_path, json_string).map_err(|e| format!("JSON write failed: {e}"))
 }
 
-// -----------------------------------------------------------------------------
-// Private
-// -----------------------------------------------------------------------------
-
-fn now_ms() -> u64 {
+fn current_timestamp_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("clock")
+        .expect("System clock error")
         .as_millis() as u64
 }
