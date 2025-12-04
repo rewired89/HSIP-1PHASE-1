@@ -63,12 +63,12 @@ pub mod hello {
     }
 }
 
-// === Wire tags ===
-const TAG_E1: u8 = 0xE1;
-const TAG_E2: u8 = 0xE2;
-const TAG_D: u8 = 0xD0;
+// === Wire protocol frame tags ===
+const TAG_E1: u8 = 0xE1; // Initial ephemeral key exchange
+const TAG_E2: u8 = 0xE2; // Response ephemeral key
+const TAG_D: u8 = 0xD0;  // Data frame
 
-// === Policy config ===
+// === Reputation-based policy configuration ===
 #[derive(Clone, Debug)]
 struct PolicyCfg {
     enforce: bool,
@@ -110,11 +110,105 @@ impl PolicyCfg {
     }
 }
 
+// === Cryptographic utilities ===
+
+/// Generate a unique 4-byte salt for session initialization
 fn random_salt() -> [u8; 4] {
     let mut salt = [0u8; 4];
     OsRng.fill_bytes(&mut salt);
     salt
 }
+
+/// Derive AEAD encryption key from X25519 shared secret using HKDF-SHA256
+fn derive_session_key_from_shared(shared_secret: &[u8; 32], peer_label: &PeerLabel) -> Result<[u8; 32]> {
+    let hk = Hkdf::<Sha256>::new(None, shared_secret);
+    let mut key_material = [0u8; 32];
+    hk.expand(&peer_label.label, &mut key_material)
+        .map_err(|_| anyhow!("HKDF key derivation failed"))?;
+    Ok(key_material)
+}
+
+/// Create standard HSIP peer label for consent protocol
+fn hsip_consent_label() -> PeerLabel {
+    PeerLabel {
+        label: b"CONSENTv1".to_vec(),
+    }
+}
+
+// === Ephemeral key exchange structures ===
+
+struct InitiatorHandshake {
+    ephemeral: Ephemeral,
+    our_public_key: x25519_dalek::PublicKey,
+}
+
+impl InitiatorHandshake {
+    fn new() -> Self {
+        let ephemeral = Ephemeral::generate();
+        let our_public_key = ephemeral.public();
+        Self {
+            ephemeral,
+            our_public_key,
+        }
+    }
+
+    fn build_e1_packet(&self) -> Vec<u8> {
+        let mut packet = Vec::with_capacity(PREFIX_LEN + 1 + 32);
+        write_prefix(&mut packet);
+        packet.push(TAG_E1);
+        packet.extend_from_slice(self.our_public_key.as_bytes());
+        packet
+    }
+
+    fn complete_exchange(
+        self,
+        remote_public_key: &XPublicKey,
+    ) -> Result<(ManagedSession, PeerLabel)> {
+        let label = hsip_consent_label();
+        let shared_secret = self.ephemeral.into_shared(remote_public_key)?;
+        let session_key = derive_session_key_from_shared(&shared_secret, &label)?;
+        let managed_session = ManagedSession::new(&session_key, random_salt());
+        Ok((managed_session, label))
+    }
+}
+
+struct ResponderHandshake {
+    our_public_key: x25519_dalek::PublicKey,
+    shared_secret: [u8; 32],
+}
+
+impl ResponderHandshake {
+    fn from_received_e1(remote_e1_key: &XPublicKey) -> Result<Self> {
+        let ephemeral = Ephemeral::generate();
+        let our_public_key = ephemeral.public();
+        let shared_secret = ephemeral.into_shared(remote_e1_key)?;
+        Ok(Self {
+            our_public_key,
+            shared_secret,
+        })
+    }
+
+    fn build_e2_packet(&self) -> Vec<u8> {
+        let mut frame = [0u8; 1 + 32];
+        frame[0] = TAG_E2;
+        frame[1..].copy_from_slice(self.our_public_key.as_bytes());
+
+        let mut packet = Vec::with_capacity(PREFIX_LEN + frame.len());
+        write_prefix(&mut packet);
+        packet.extend_from_slice(&frame);
+        packet
+    }
+
+    fn finalize_sessions(self) -> Result<(ManagedSession, ManagedSession)> {
+        let label = hsip_consent_label();
+        let session_key = derive_session_key_from_shared(&self.shared_secret, &label)?;
+        let rx_session = ManagedSession::new(&session_key, random_salt());
+        let tx_session = ManagedSession::new(&session_key, random_salt());
+        Ok((rx_session, tx_session))
+    }
+}
+
+// === Decoy traffic for traffic analysis resistance ===
 
 fn spawn_decoy_if_env() {
     let addr = match std::env::var("HSIP_DECOY_ADDR") {
@@ -148,7 +242,7 @@ fn spawn_decoy_if_env() {
                         Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                             std::thread::sleep(Duration::from_millis(1));
                         }
-                        Err(ref e) if is_win_connreset(e) => continue,
+                        Err(ref e) if is_windows_connection_reset(e) => continue,
                         Err(e) => eprintln!("[decoy] recv error: {e}"),
                     }
                 }
@@ -158,7 +252,7 @@ fn spawn_decoy_if_env() {
     });
 }
 
-// === CONTROL LISTEN ===
+// === Main control plane listener ===
 pub fn listen_control(addr: &str) -> Result<()> {
     let mut guard = Guard::new(GuardCfg {
         enable: true,
@@ -175,9 +269,40 @@ pub fn listen_control(addr: &str) -> Result<()> {
 
     spawn_decoy_if_env();
 
-    // === WAIT FOR E1 ===
+    // Wait for and parse E1 handshake initiation
+    let (remote_peer_addr, remote_ephemeral_key) = receive_e1_initiation(&sock, &mut guard)?;
+
+    // Perform responder-side handshake
+    let handshake = ResponderHandshake::from_received_e1(&remote_ephemeral_key)?;
+    let e2_packet = handshake.build_e2_packet();
+    sock.send_to(&e2_packet, remote_peer_addr).ok();
+    println!("[control-listen] handshake complete with {remote_peer_addr}");
+
+    let (mut rx_session, mut tx_session) = handshake.finalize_sessions()?;
+
+    // Load our identity for signing responses
+    let (sk, vk) = load_keypair().map_err(|e| anyhow!("load identity: {e}"))?;
+
+    // Main control message processing loop
+    process_control_messages(
+        &sock,
+        &mut rx_session,
+        &mut tx_session,
+        &mut guard,
+        &pcfg,
+        &sk,
+        &vk,
+    )
+}
+
+/// Wait for and validate an E1 handshake initiation frame
+fn receive_e1_initiation(
+    sock: &UdpSocket,
+    guard: &mut Guard,
+) -> Result<(std::net::SocketAddr, XPublicKey)> {
     let mut buf = [0u8; 65535];
-    let (_n, peer) = loop {
+
+    let (frame_size, peer_addr) = loop {
         match sock.recv_from(&mut buf) {
             Ok((n, p))
                 if n > PREFIX_LEN + 32 && check_prefix(&buf[..n]) && buf[PREFIX_LEN] == TAG_E1 =>
@@ -194,170 +319,59 @@ pub fn listen_control(addr: &str) -> Result<()> {
         }
     };
 
-    // === Parse E1 ===
-    let raw = &buf[PREFIX_LEN.._n];
-    let mut peer_pub_bytes = [0u8; 32];
-    peer_pub_bytes.copy_from_slice(&raw[1..33]);
-    let peer_pub = XPublicKey::from(peer_pub_bytes);
+    // Extract remote ephemeral public key
+    let raw_frame = &buf[PREFIX_LEN..frame_size];
+    let mut remote_key_bytes = [0u8; 32];
+    remote_key_bytes.copy_from_slice(&raw_frame[1..33]);
+    let remote_key = XPublicKey::from(remote_key_bytes);
 
-    // === X25519 ephemeral → shared secret ===
-    let eph = Ephemeral::generate();
-    let our_pub = eph.public();
+    Ok((peer_addr, remote_key))
+}
 
-    let label = PeerLabel {
-        label: b"CONSENTv1".to_vec(),
-    };
+/// Main loop for processing encrypted control messages
+fn process_control_messages(
+    sock: &UdpSocket,
+    rx_session: &mut ManagedSession,
+    tx_session: &mut ManagedSession,
+    guard: &mut Guard,
+    policy: &PolicyCfg,
+    signing_key: &SigningKey,
+    verifying_key: &VerifyingKey,
+) -> Result<()> {
+    let mut reputation_store: Option<Store> = None;
+    let mut receive_buffer = [0u8; 65535];
+    let aad = aad_for(AAD_LABEL_E2);
 
-    let shared = eph.into_shared(&peer_pub)?;
-
-    // === Derive AEAD key via HKDF ===
-    let key_bytes = {
-        let hk = Hkdf::<Sha256>::new(None, &shared);
-        let mut okm = [0u8; 32];
-        hk.expand(&label.label, &mut okm)
-            .map_err(|_| anyhow!("kdf expand"))?;
-        okm
-    };
-
-    let mut managed = ManagedSession::new(&key_bytes, random_salt());
-
-    // === Send E2 ===
-    let mut e2 = [0u8; 1 + 32];
-    e2[0] = TAG_E2;
-    e2[1..].copy_from_slice(our_pub.as_bytes());
-
-    let mut pkt = Vec::with_capacity(PREFIX_LEN + e2.len());
-    write_prefix(&mut pkt);
-    pkt.extend_from_slice(&e2);
-    sock.send_to(&pkt, peer).ok();
-
-    println!("[control-listen] handshake complete with {peer}");
-
-    // Load identity
-    let (sk, vk) = load_keypair().map_err(|e| anyhow!("load identity: {e}"))?;
-    let _my_peer = peer_id_from_pubkey(&vk);
-
-    let mut rep_store: Option<Store> = None;
-    let mut rbuf = [0u8; 65535];
-
-    // === MAIN LOOP ===
     loop {
-        match sock.recv_from(&mut rbuf) {
-            Ok((n, p))
-                if n > PREFIX_LEN && check_prefix(&rbuf[..n]) && rbuf[PREFIX_LEN] == TAG_D =>
+        match sock.recv_from(&mut receive_buffer) {
+            Ok((n, peer_addr))
+                if n > PREFIX_LEN && check_prefix(&receive_buffer[..n]) && receive_buffer[PREFIX_LEN] == TAG_D =>
             {
-                if let Err(reason) = guard.on_control_frame(p.ip(), n) {
-                    eprintln!("[guard] drop control from {p}: {reason}");
+                if let Err(reason) = guard.on_control_frame(peer_addr.ip(), n) {
+                    eprintln!("[guard] drop control from {peer_addr}: {reason}");
                     continue;
                 }
 
-                // New frame format: TAG_D | counter(8) | ciphertext...
-                let raw = &rbuf[PREFIX_LEN + 1..n];
-                if raw.len() < 8 {
-                    eprintln!("[control] short frame from {p}");
-                    continue;
-                }
-
-                let counter = u64::from_be_bytes(raw[0..8].try_into().unwrap());
-                let ciphertext = &raw[8..];
-                let aad = aad_for(AAD_LABEL_E2);
-
-                match managed.decrypt(counter, ciphertext, &aad) {
-                    Ok(pt) => {
-                        // Try REQUEST
-                        if let Ok(req) = serde_json::from_slice::<ConsentRequest>(&pt) {
-                            println!(
-                                "[control] CONSENT_REQUEST from {p}: purpose='{}' expires_ms={}",
-                                req.purpose, req.expires_ms
-                            );
-
-                            let mut decision = "allow".to_string();
-
-                            // Verify Sig
-                            if let Err(err) = verify_request(&req) {
-                                eprintln!("[Policy] invalid signature → deny: {err}");
-                                guard.on_bad_sig(p.ip()).ok();
-                                decision = "deny".into();
-                            }
-
-                            // Reputation
-                            if decision == "allow" && pcfg.enforce {
-                                let requester = req.requester_peer_id.clone();
-
-                                if requester.is_empty() {
-                                    decision = "deny".into();
-                                } else {
-                                    if rep_store.is_none() {
-                                        rep_store = Some(
-                                            Store::open(&pcfg.log_path).with_context(|| {
-                                                format!(
-                                                    "open rep log '{}'",
-                                                    pcfg.log_path.display()
-                                                )
-                                            })?,
-                                        );
-                                    }
-
-                                    let score = rep_store
-                                        .as_ref()
-                                        .unwrap()
-                                        .compute_score(&requester)
-                                        .unwrap_or(0);
-
-                                    if score < pcfg.threshold {
-                                        decision = "deny".into();
-                                    }
-                                }
-                            }
-
-                            if decision == "allow" {
-                                let requester = req.requester_peer_id.clone();
-                                if !requester.is_empty() {
-                                    guard.pin(&requester);
-                                }
-                            }
-
-                            // Build response
-                            let resp =
-                                build_response_with_decision(&sk, &vk, &req, decision, 60_000)?;
-
-                            let payload = serde_json::to_vec(&resp)?;
-
-                            let (ctr2, ct2) = managed
-                                .encrypt(&payload, &aad)
-                                .map_err(|e| anyhow!("{:?}", e))?;
-
-                            let mut pkt = Vec::with_capacity(PREFIX_LEN + 1 + 8 + ct2.len());
-                            write_prefix(&mut pkt);
-                            pkt.push(TAG_D);
-                            pkt.extend_from_slice(&ctr2.to_be_bytes());
-                            pkt.extend_from_slice(&ct2);
-
-                            sock.send_to(&pkt, p).ok();
-
-                        // RESPONSE
-                        } else if let Ok(resp) = serde_json::from_slice::<ConsentResponse>(&pt) {
-                            println!(
-                                "[control] CONSENT_RESPONSE from {p}: '{}' ttl_ms={} req={}",
-                                resp.decision, resp.ttl_ms, resp.request_hash_hex
-                            );
-                        } else {
-                            println!("[control] json: {}", String::from_utf8_lossy(&pt));
-                        }
-                    }
-
-                    Err(CoreSessionError::RekeyRequired) => {
-                        eprintln!("[control] session requires rekey (todo)");
-                    }
-
-                    Err(e) => eprintln!("[control] decrypt error from {p}: {e:?}"),
+                // Decrypt and process the control message
+                if let Some(plaintext) = decrypt_control_frame(&receive_buffer[PREFIX_LEN..n], rx_session, &aad) {
+                    handle_control_message(
+                        plaintext,
+                        peer_addr,
+                        sock,
+                        tx_session,
+                        guard,
+                        policy,
+                        &mut reputation_store,
+                        signing_key,
+                        verifying_key,
+                        &aad,
+                    )?;
                 }
             }
 
-            // ignore non-HSIP
-            Ok((_n, _p)) => {}
+            Ok((_n, _p)) => {} // Ignore non-control frames
 
-            Err(ref e) if is_win_connreset(e) => continue,
+            Err(ref e) if is_windows_connection_reset(e) => continue,
 
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 std::thread::sleep(Duration::from_millis(5));
@@ -368,93 +382,242 @@ pub fn listen_control(addr: &str) -> Result<()> {
     }
 }
 
-// === CLIENT SEND ===
-pub fn send_consent_request(to: &str, req: &ConsentRequest) -> Result<()> {
-    sealed_send(to, &serde_json::to_vec(req)?)
-}
-
-pub fn send_consent_response(to: &str, resp: &ConsentResponse) -> Result<()> {
-    sealed_send(to, &serde_json::to_vec(resp)?)
-}
-
-// === CLIENT IMPLEMENTATION (E1/E2 + TAG_D) ===
-fn sealed_send(to: &str, payload: &[u8]) -> Result<()> {
-    let sock = UdpSocket::bind("0.0.0.0:0")?;
-    sock.set_read_timeout(Some(Duration::from_millis(2000)))
-        .ok();
-
-    // === E1 ===
-    let eph = Ephemeral::generate();
-    let our_pub = eph.public();
-
-    let mut e1 = [0u8; 33];
-    e1[0] = TAG_E1;
-    e1[1..33].copy_from_slice(our_pub.as_bytes());
-
-    let mut pkt_e1 = Vec::with_capacity(PREFIX_LEN + 33);
-    write_prefix(&mut pkt_e1);
-    pkt_e1.extend_from_slice(&e1);
-
-    sock.send_to(&pkt_e1, to)?;
-
-    // === E2 ===
-    let mut buf = [0u8; 64];
-    let (n, _) = sock.recv_from(&mut buf)?;
-
-    if n < PREFIX_LEN + 33 || !check_prefix(&buf[..n]) {
-        return Err(anyhow!("invalid E2"));
+/// Decrypt a control frame (TAG_D with counter + ciphertext)
+fn decrypt_control_frame(
+    raw_frame: &[u8],
+    session: &mut ManagedSession,
+    aad: &[u8],
+) -> Option<Vec<u8>> {
+    if raw_frame.len() < 9 {
+        // Need at least TAG_D(1) + counter(8)
+        return None;
     }
 
-    let raw = &buf[PREFIX_LEN..n];
-    if raw[0] != TAG_E2 {
-        return Err(anyhow!("unexpected tag in E2"));
+    let counter = u64::from_be_bytes(raw_frame[1..9].try_into().unwrap());
+    let ciphertext = &raw_frame[9..];
+
+    match session.decrypt(counter, ciphertext, aad) {
+        Ok(plaintext) => Some(plaintext),
+        Err(CoreSessionError::RekeyRequired) => {
+            eprintln!("[control] session requires rekey (not implemented)");
+            None
+        }
+        Err(e) => {
+            eprintln!("[control] decrypt error: {e:?}");
+            None
+        }
+    }
+}
+
+/// Process a decrypted control message (either request or response)
+fn handle_control_message(
+    plaintext: Vec<u8>,
+    peer_addr: std::net::SocketAddr,
+    sock: &UdpSocket,
+    tx_session: &mut ManagedSession,
+    guard: &mut Guard,
+    policy: &PolicyCfg,
+    reputation_store: &mut Option<Store>,
+    signing_key: &SigningKey,
+    verifying_key: &VerifyingKey,
+    aad: &[u8],
+) -> Result<()> {
+    // Try parsing as ConsentRequest
+    if let Ok(request) = serde_json::from_slice::<ConsentRequest>(&plaintext) {
+        println!(
+            "[control] CONSENT_REQUEST from {peer_addr}: purpose='{}' expires_ms={}",
+            request.purpose, request.expires_ms
+        );
+
+        let decision = evaluate_consent_request(
+            &request,
+            peer_addr,
+            guard,
+            policy,
+            reputation_store,
+        )?;
+
+        let response = build_response_with_decision(
+            signing_key,
+            verifying_key,
+            &request,
+            decision,
+            60_000,
+        )?;
+
+        send_encrypted_response(sock, tx_session, &response, peer_addr, aad)?;
+        return Ok(());
     }
 
-    let mut srv_pub_bytes = [0u8; 32];
-    srv_pub_bytes.copy_from_slice(&raw[1..33]);
-    let srv_pub = XPublicKey::from(srv_pub_bytes);
+    // Try parsing as ConsentResponse
+    if let Ok(response) = serde_json::from_slice::<ConsentResponse>(&plaintext) {
+        println!(
+            "[control] CONSENT_RESPONSE from {peer_addr}: '{}' ttl_ms={} req={}",
+            response.decision, response.ttl_ms, response.request_hash_hex
+        );
+        return Ok(());
+    }
 
-    let label = PeerLabel {
-        label: b"CONSENTv1".to_vec(),
-    };
-
-    let shared = eph.into_shared(&srv_pub)?;
-
-    let key_bytes = {
-        let hk = Hkdf::<Sha256>::new(None, &shared);
-        let mut okm = [0u8; 32];
-        hk.expand(&label.label, &mut okm)
-            .map_err(|_| anyhow!("kdf expand"))?;
-        okm
-    };
-
-    let mut managed = ManagedSession::new(&key_bytes, random_salt());
-    let aad = aad_for(AAD_LABEL_E2);
-
-    let (ctr, ct) = managed
-        .encrypt(payload, &aad)
-        .map_err(|e| anyhow!("encrypt: {:?}", e))?;
-
-    let mut pkt = Vec::with_capacity(PREFIX_LEN + 1 + 8 + ct.len());
-    write_prefix(&mut pkt);
-    pkt.push(TAG_D);
-    pkt.extend_from_slice(&ctr.to_be_bytes());
-    pkt.extend_from_slice(&ct);
-
-    sock.send_to(&pkt, to)?;
+    // Unknown JSON message
+    println!("[control] json: {}", String::from_utf8_lossy(&plaintext));
     Ok(())
 }
 
-// === OS UDP weirdness on Windows ===
-fn is_win_connreset(e: &std::io::Error) -> bool {
+/// Evaluate whether to grant or deny a consent request
+fn evaluate_consent_request(
+    request: &ConsentRequest,
+    peer_addr: std::net::SocketAddr,
+    guard: &mut Guard,
+    policy: &PolicyCfg,
+    reputation_store: &mut Option<Store>,
+) -> Result<String> {
+    let mut decision = "allow".to_string();
+
+    // First check: signature validity
+    if let Err(err) = verify_request(request) {
+        eprintln!("[Policy] invalid signature → deny: {err}");
+        guard.on_bad_sig(peer_addr.ip()).ok();
+        decision = "deny".into();
+    }
+
+    // Second check: reputation-based filtering
+    if decision == "allow" && policy.enforce {
+        let requester_id = request.requester_peer_id.clone();
+
+        if requester_id.is_empty() {
+            decision = "deny".into();
+        } else {
+            // Lazy-load reputation store
+            if reputation_store.is_none() {
+                *reputation_store = Some(
+                    Store::open(&policy.log_path)
+                        .with_context(|| format!("open rep log '{}'", policy.log_path.display()))?,
+                );
+            }
+
+            let score = reputation_store
+                .as_ref()
+                .unwrap()
+                .compute_score(&requester_id)
+                .unwrap_or(0);
+
+            if score < policy.threshold {
+                decision = "deny".into();
+            }
+        }
+    }
+
+    // If allowed, pin the requester for guard
+    if decision == "allow" {
+        let requester_id = request.requester_peer_id.clone();
+        if !requester_id.is_empty() {
+            guard.pin(&requester_id);
+        }
+    }
+
+    Ok(decision)
+}
+
+/// Encrypt and send a ConsentResponse back to the requester
+fn send_encrypted_response(
+    sock: &UdpSocket,
+    session: &mut ManagedSession,
+    response: &ConsentResponse,
+    dest: std::net::SocketAddr,
+    aad: &[u8],
+) -> Result<()> {
+    let response_json = serde_json::to_vec(response)?;
+
+    let (counter, ciphertext) = session
+        .encrypt(&response_json, aad)
+        .map_err(|e| anyhow!("encrypt response: {:?}", e))?;
+
+    let mut packet = Vec::with_capacity(PREFIX_LEN + 1 + 8 + ciphertext.len());
+    write_prefix(&mut packet);
+    packet.push(TAG_D);
+    packet.extend_from_slice(&counter.to_be_bytes());
+    packet.extend_from_slice(&ciphertext);
+
+    sock.send_to(&packet, dest).ok();
+    Ok(())
+}
+
+// === CLIENT-SIDE FUNCTIONS ===
+
+pub fn send_consent_request(to: &str, req: &ConsentRequest) -> Result<()> {
+    let payload = serde_json::to_vec(req)?;
+    perform_client_exchange(to, &payload)
+}
+
+pub fn send_consent_response(to: &str, resp: &ConsentResponse) -> Result<()> {
+    let payload = serde_json::to_vec(resp)?;
+    perform_client_exchange(to, &payload)
+}
+
+/// Perform client-side handshake and send encrypted payload
+fn perform_client_exchange(server_addr: &str, payload: &[u8]) -> Result<()> {
+    let sock = UdpSocket::bind("0.0.0.0:0")?;
+    sock.set_read_timeout(Some(Duration::from_millis(2000))).ok();
+
+    // Initiate handshake with E1
+    let handshake = InitiatorHandshake::new();
+    let e1_packet = handshake.build_e1_packet();
+    sock.send_to(&e1_packet, server_addr)?;
+
+    // Receive E2 response
+    let server_ephemeral_key = receive_e2_response(&sock)?;
+
+    // Complete handshake and get session
+    let (mut session, _label) = handshake.complete_exchange(&server_ephemeral_key)?;
+
+    // Encrypt and send the payload
+    let aad = aad_for(AAD_LABEL_E2);
+    let (counter, ciphertext) = session
+        .encrypt(payload, &aad)
+        .map_err(|e| anyhow!("encrypt: {:?}", e))?;
+
+    let mut data_packet = Vec::with_capacity(PREFIX_LEN + 1 + 8 + ciphertext.len());
+    write_prefix(&mut data_packet);
+    data_packet.push(TAG_D);
+    data_packet.extend_from_slice(&counter.to_be_bytes());
+    data_packet.extend_from_slice(&ciphertext);
+
+    sock.send_to(&data_packet, server_addr)?;
+    Ok(())
+}
+
+/// Receive and validate E2 handshake response from server
+fn receive_e2_response(sock: &UdpSocket) -> Result<XPublicKey> {
+    let mut buf = [0u8; 64];
+    let (received_bytes, _) = sock.recv_from(&mut buf)?;
+
+    if received_bytes < PREFIX_LEN + 33 || !check_prefix(&buf[..received_bytes]) {
+        return Err(anyhow!("invalid E2 frame format"));
+    }
+
+    let frame_data = &buf[PREFIX_LEN..received_bytes];
+    if frame_data[0] != TAG_E2 {
+        return Err(anyhow!("expected E2 tag, got {:#x}", frame_data[0]));
+    }
+
+    let mut server_key_bytes = [0u8; 32];
+    server_key_bytes.copy_from_slice(&frame_data[1..33]);
+    Ok(XPublicKey::from(server_key_bytes))
+}
+
+// === Platform-specific error handling ===
+
+/// Check if error is Windows-specific connection reset (WSAECONNRESET)
+fn is_windows_connection_reset(e: &std::io::Error) -> bool {
     if let Some(code) = e.raw_os_error() {
-        code == 10054
+        code == 10054 // WSAECONNRESET on Windows
     } else {
         false
     }
 }
 
-// === Build Consent Response ===
+// === Response construction ===
+
 fn build_response_with_decision(
     sk: &SigningKey,
     vk: &VerifyingKey,
@@ -478,7 +641,7 @@ fn build_response_with_decision(
         decision,
         ttl_ms,
         sig_hex: String::new(),
-        ts_ms: now_ms(),
+        ts_ms: current_timestamp_ms(),
     };
 
     let mut tmp = resp.clone();
@@ -490,7 +653,7 @@ fn build_response_with_decision(
     Ok(resp)
 }
 
-fn now_ms() -> u64 {
+fn current_timestamp_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
