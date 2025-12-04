@@ -410,6 +410,7 @@ fn decrypt_control_frame(
 }
 
 /// Process a decrypted control message (either request or response)
+#[allow(clippy::too_many_arguments)]
 fn handle_control_message(
     plaintext: Vec<u8>,
     peer_addr: std::net::SocketAddr,
