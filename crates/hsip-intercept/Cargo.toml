@@ -1,0 +1,63 @@
+[package]
+name = "hsip-intercept"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+authors = ["HSIP Contributors"]
+description = "Private DM Intercept - OS-level event detection for privacy-preserving messaging"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Core HSIP dependencies
+hsip-core = { path = "../hsip-core" }
+hsip-session = { path = "../hsip-session" }
+hsip-net = { path = "../hsip-net" }
+hsip-auth = { path = "../hsip-auth" }
+
+# Async runtime
+tokio = { version = "1.39", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Utilities
+rand = "0.8"
+chrono = "0.4"
+dirs = "5.0"
+async-trait = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+# Windows UI Automation and overlay
+windows = { version = "0.58", features = [
+    "Win32_UI_Accessibility",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Threading",
+    "Win32_System_LibraryLoader",
+    "UI_UIAutomation",
+    "UI_UIAutomation_Core",
+] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+# Android will use JNI bindings (built separately in Kotlin)
+jni = "0.21"
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[features]
+default = ["windows-overlay", "pattern-db"]
+windows-overlay = []
+android-service = []
+pattern-db = []
+privacy-enhance = [] # Timing obfuscation, metadata hiding
