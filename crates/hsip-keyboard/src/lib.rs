@@ -1,11 +1,16 @@
 //! HSIP Secure Keyboard - Rust Backend
 //!
-//! Provides encryption/decryption for the Android IME via JNI.
+//! Provides encryption/decryption for Android (via JNI) and iOS (via FFI).
 
 pub mod crypto;
 pub mod message;
 pub mod session;
+
+#[cfg(target_os = "android")]
 pub mod jni_bridge;
+
+#[cfg(target_os = "ios")]
+pub mod ios_ffi;
 
 pub use crypto::{encrypt_message, decrypt_message};
 pub use message::{HSIPMessage, MessageFormat};
@@ -13,6 +18,9 @@ pub use session::SessionManager;
 
 #[cfg(target_os = "android")]
 pub use jni_bridge::*;
+
+#[cfg(target_os = "ios")]
+pub use ios_ffi::*;
 
 use thiserror::Error;
 
