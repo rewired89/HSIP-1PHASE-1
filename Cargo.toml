@@ -7,6 +7,8 @@ members = [
     "crates/hsip-cli",
     "crates/hsip-auth",
     "crates/hsip-gateway",
+    "crates/hsip-intercept",
+    "crates/hsip-keyboard",
 ]
 
 

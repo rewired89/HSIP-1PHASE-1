@@ -66,7 +66,7 @@ pub mod hello {
 // === Wire protocol frame tags ===
 const TAG_E1: u8 = 0xE1; // Initial ephemeral key exchange
 const TAG_E2: u8 = 0xE2; // Response ephemeral key
-const TAG_D: u8 = 0xD0;  // Data frame
+const TAG_D: u8 = 0xD0; // Data frame
 
 // === Reputation-based policy configuration ===
 #[derive(Clone, Debug)]
@@ -120,7 +120,10 @@ fn random_salt() -> [u8; 4] {
 }
 
 /// Derive AEAD encryption key from X25519 shared secret using HKDF-SHA256
-fn derive_session_key_from_shared(shared_secret: &[u8; 32], peer_label: &PeerLabel) -> Result<[u8; 32]> {
+fn derive_session_key_from_shared(
+    shared_secret: &[u8; 32],
+    peer_label: &PeerLabel,
+) -> Result<[u8; 32]> {
     let hk = Hkdf::<Sha256>::new(None, shared_secret);
     let mut key_material = [0u8; 32];
     hk.expand(&peer_label.label, &mut key_material)
@@ -345,7 +348,9 @@ fn process_control_messages(
     loop {
         match sock.recv_from(&mut receive_buffer) {
             Ok((n, peer_addr))
-                if n > PREFIX_LEN && check_prefix(&receive_buffer[..n]) && receive_buffer[PREFIX_LEN] == TAG_D =>
+                if n > PREFIX_LEN
+                    && check_prefix(&receive_buffer[..n])
+                    && receive_buffer[PREFIX_LEN] == TAG_D =>
             {
                 if let Err(reason) = guard.on_control_frame(peer_addr.ip(), n) {
                     eprintln!("[guard] drop control from {peer_addr}: {reason}");
@@ -353,7 +358,9 @@ fn process_control_messages(
                 }
 
                 // Decrypt and process the control message
-                if let Some(plaintext) = decrypt_control_frame(&receive_buffer[PREFIX_LEN..n], rx_session, &aad) {
+                if let Some(plaintext) =
+                    decrypt_control_frame(&receive_buffer[PREFIX_LEN..n], rx_session, &aad)
+                {
                     handle_control_message(
                         plaintext,
                         peer_addr,
@@ -430,21 +437,11 @@ fn handle_control_message(
             request.purpose, request.expires_ms
         );
 
-        let decision = evaluate_consent_request(
-            &request,
-            peer_addr,
-            guard,
-            policy,
-            reputation_store,
-        )?;
+        let decision =
+            evaluate_consent_request(&request, peer_addr, guard, policy, reputation_store)?;
 
-        let response = build_response_with_decision(
-            signing_key,
-            verifying_key,
-            &request,
-            decision,
-            60_000,
-        )?;
+        let response =
+            build_response_with_decision(signing_key, verifying_key, &request, decision, 60_000)?;
 
         send_encrypted_response(sock, tx_session, &response, peer_addr, aad)?;
         return Ok(());
@@ -490,10 +487,10 @@ fn evaluate_consent_request(
         } else {
             // Lazy-load reputation store
             if reputation_store.is_none() {
-                *reputation_store = Some(
-                    Store::open(&policy.log_path)
-                        .with_context(|| format!("open rep log '{}'", policy.log_path.display()))?,
-                );
+                *reputation_store =
+                    Some(Store::open(&policy.log_path).with_context(|| {
+                        format!("open rep log '{}'", policy.log_path.display())
+                    })?);
             }
 
             let score = reputation_store
@@ -558,7 +555,8 @@ pub fn send_consent_response(to: &str, resp: &ConsentResponse) -> Result<()> {
 /// Perform client-side handshake and send encrypted payload
 fn perform_client_exchange(server_addr: &str, payload: &[u8]) -> Result<()> {
     let sock = UdpSocket::bind("0.0.0.0:0")?;
-    sock.set_read_timeout(Some(Duration::from_millis(2000))).ok();
+    sock.set_read_timeout(Some(Duration::from_millis(2000)))
+        .ok();
 
     // Initiate handshake with E1
     let handshake = InitiatorHandshake::new();

@@ -4,22 +4,31 @@ use crate::proxy::{run_proxy, Config};
 use anyhow::Result;
 
 fn main() -> Result<()> {
-    // Allow overriding via env if you ever want:
-    //   HSIP_GATEWAY_LISTEN=0.0.0.0:8080
-    //   HSIP_GATEWAY_TIMEOUT_MS=8000
-    let listen =
-        std::env::var("HSIP_GATEWAY_LISTEN").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
+    let gateway_config = build_gateway_configuration();
+    
+    println!("[gateway] Initializing with configuration: {:?}", gateway_config);
+    
+    run_proxy(gateway_config)
+}
 
-    let timeout_ms = std::env::var("HSIP_GATEWAY_TIMEOUT_MS")
+fn build_gateway_configuration() -> Config {
+    let listen_address = read_listen_address();
+    let connection_timeout = read_timeout_configuration();
+
+    Config {
+        listen_addr: listen_address,
+        connect_timeout_ms: connection_timeout,
+    }
+}
+
+fn read_listen_address() -> String {
+    std::env::var("HSIP_GATEWAY_LISTEN")
+        .unwrap_or_else(|_| String::from("127.0.0.1:8080"))
+}
+
+fn read_timeout_configuration() -> u64 {
+    std::env::var("HSIP_GATEWAY_TIMEOUT_MS")
         .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(5000);
-
-    let cfg = Config {
-        listen_addr: listen,
-        connect_timeout_ms: timeout_ms,
-    };
-
-    println!("[gateway] starting with cfg: {:?}", cfg);
-    run_proxy(cfg)
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(5000)
 }

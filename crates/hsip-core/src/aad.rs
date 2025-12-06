@@ -1,26 +1,24 @@
-//! HSIP unified Associated Authenticated Data (AAD) constants.
-//!
-//! These labels are included in AEAD authentication so packets from
-//! different protocol layers cannot be replayed or confused with
-//! each other. They are *versioned* so HSIP v2+ can coexist safely.
+// Authenticated encryption labels for HSIP protocol layers
+// These constants serve as Associated Authenticated Data (AAD) in AEAD operations
+// to prevent cross-layer replay attacks. Version tags enable safe protocol evolution.
 
-/// AAD for HELLO handshake frames.
+// Handshake HELLO frame authentication label
 pub const AAD_HELLO: &[u8] = b"HSIP-V1-HELLO";
 
-/// AAD for consent request/response frames.
+// Consent request/response frame authentication label
 pub const AAD_CONSENT: &[u8] = b"HSIP-V1-CONSENT";
 
-/// AAD for encrypted application data packets.
+// Application data packet authentication label
 pub const AAD_DATA: &[u8] = b"HSIP-V1-DATA";
 
-/// AAD for session resumption tickets.
-/// (Kept consistent with session_resumption.rs)
+// Session resumption ticket authentication label
+// (Aligned with session_resumption.rs implementation)
 pub const AAD_TICKET: &[u8] = b"HSIP-TICKET-V1";
 
-/// AAD for rekey control messages (future use).
+// Rekey control message authentication label (reserved for future use)
 pub const AAD_REKEY: &[u8] = b"HSIP-V1-REKEY";
 
-/// AAD for status/daemon metadata (if ever authenticated).
+// Status/daemon metadata authentication label (reserved)
 pub const AAD_STATUS: &[u8] = b"HSIP-V1-STATUS";
 
 #[cfg(test)]
@@ -28,24 +26,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn labels_are_unique() {
-        assert_ne!(AAD_HELLO, AAD_CONSENT);
-        assert_ne!(AAD_HELLO, AAD_DATA);
-        assert_ne!(AAD_CONSENT, AAD_DATA);
-
-        // extra checks for new labels
-        assert_ne!(AAD_HELLO, AAD_REKEY);
-        assert_ne!(AAD_HELLO, AAD_STATUS);
-        assert_ne!(AAD_CONSENT, AAD_REKEY);
-        assert_ne!(AAD_CONSENT, AAD_STATUS);
-        assert_ne!(AAD_DATA, AAD_REKEY);
-        assert_ne!(AAD_DATA, AAD_STATUS);
-        assert_ne!(AAD_TICKET, AAD_REKEY);
-        assert_ne!(AAD_TICKET, AAD_STATUS);
+    fn verify_label_uniqueness() {
+        let labels = [
+            AAD_HELLO, AAD_CONSENT, AAD_DATA, 
+            AAD_TICKET, AAD_REKEY, AAD_STATUS
+        ];
+        
+        for i in 0..labels.len() {
+            for j in (i + 1)..labels.len() {
+                assert_ne!(
+                    labels[i], labels[j],
+                    "Labels at indices {} and {} are not unique",
+                    i, j
+                );
+            }
+        }
     }
 
     #[test]
-    fn labels_are_stable() {
+    fn verify_label_stability() {
+        // Ensure labels remain constant across versions
         assert_eq!(AAD_HELLO, b"HSIP-V1-HELLO");
         assert_eq!(AAD_CONSENT, b"HSIP-V1-CONSENT");
         assert_eq!(AAD_DATA, b"HSIP-V1-DATA");

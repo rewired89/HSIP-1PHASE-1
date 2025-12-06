@@ -3,6 +3,10 @@ name = "hsip-auth"
 version = "0.1.0"
 edition = "2021"
 license-file = "../LICENSE"
+<<<<<<< HEAD
+=======
+
+>>>>>>> 731c98a551750235e27c2d5e85a0b5798cfedc39
 
 [dependencies]
 anyhow = "1"

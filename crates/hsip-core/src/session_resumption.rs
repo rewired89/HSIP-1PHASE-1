@@ -1,16 +1,14 @@
-//! HSIP session resumption tickets.
-//!
-//! Goal:
-//!   * Let a peer reconnect shortly after a valid session
-//!     WITHOUT redoing full consent.
-//!   * Still do a fresh X25519 + fresh ChaCha keys.
-//!   * Ticket is short-lived, encrypted, and bound to peer_id.
-//!
-//! Wire format for ticket (variable length):
-//!   [0..12]   : nonce (ChaCha20-Poly1305, 96-bit)
-//!   [12..]    : ciphertext || tag, where plaintext is:
-//!               [peer_id:32][caps:4 LE][issued_at:8 LE][expires_at:8 LE]
-//!               total inner = 32 + 4 + 8 + 8 = 52 bytes
+// HSIP session resumption implementation
+// Enables peers to reconnect after valid sessions without full consent re-negotiation.
+// Fresh X25519 and ChaCha20 keys are still generated per connection.
+// Tickets are ephemeral, authenticated, and bound to peer identity.
+
+// Ticket wire encoding (variable length):
+//   [0..12]   : ChaCha20-Poly1305 nonce (96 bits)
+//   [12..]    : authenticated ciphertext with tag
+//               plaintext structure:
+//               [peer_id:32][caps:4 LE][issued_at:8 LE][expires_at:8 LE]
+//               plaintext total = 52 bytes
 
 use core::fmt;
 
@@ -23,16 +21,14 @@ use rand::RngCore;
 
 use crate::hello::{HelloCapabilities, PeerId};
 
-/// A static key used by a server to encrypt/decrypt tickets.
-///
-/// This must be the same across restarts if you want tickets
-/// to survive restarts. You can load it from disk or env.
+// Server-side static key for ticket encryption/decryption operations
+// Must persist across restarts for ticket continuity
 #[derive(Clone)]
-pub struct SessionTicketKey([u8; 32]);
+pub struct TicketEncryptionKey([u8; 32]);
 
-impl SessionTicketKey {
-    pub fn new(bytes: [u8; 32]) -> Self {
-        SessionTicketKey(bytes)
+impl TicketEncryptionKey {
+    pub fn new(key_material: [u8; 32]) -> Self {
+        TicketEncryptionKey(key_material)
     }
 
     pub fn as_key(&self) -> Key {
@@ -40,97 +36,90 @@ impl SessionTicketKey {
     }
 }
 
-/// Config for session tickets.
+// Session ticket configuration parameters
 #[derive(Debug, Clone, Copy)]
-pub struct SessionTicketConfig {
-    /// Maximum ticket lifetime in milliseconds.
-    pub max_lifetime_ms: u64,
+pub struct TicketPolicy {
+    // Maximum permitted ticket validity duration in milliseconds
+    pub max_validity_duration_ms: u64,
 }
 
-impl Default for SessionTicketConfig {
+impl Default for TicketPolicy {
     fn default() -> Self {
-        SessionTicketConfig {
-            max_lifetime_ms: 60_000, // 60 seconds
+        TicketPolicy {
+            max_validity_duration_ms: 60_000, // 1 minute default
         }
     }
 }
 
-/// Inner ticket data (plaintext before encryption).
+// Decrypted ticket payload structure
 #[derive(Debug, Clone, Copy)]
-pub struct SessionTicketData {
+pub struct TicketPayload {
     pub peer_id: PeerId,
     pub caps: HelloCapabilities,
     pub issued_at_ms: u64,
     pub expires_at_ms: u64,
 }
 
-/// Errors for ticket creation/validation.
+// Ticket operation error types
 #[derive(Debug)]
-pub enum SessionTicketError {
-    TooLongLifetime,
-    TicketTooShort,
-    DecryptFailed,
-    Expired,
-    NotYetValid,
+pub enum TicketError {
+    ExcessiveLifetime,
+    InsufficientLength,
+    AuthenticationFailure,
+    TicketExpired,
+    FutureTicket,
 }
 
-impl fmt::Display for SessionTicketError {
+impl fmt::Display for TicketError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SessionTicketError::TooLongLifetime => {
-                write!(f, "requested lifetime exceeds configured max_lifetime_ms")
+            TicketError::ExcessiveLifetime => {
+                write!(f, "Requested lifetime exceeds policy maximum")
             }
-            SessionTicketError::TicketTooShort => {
-                write!(f, "ticket buffer too short to be valid")
+            TicketError::InsufficientLength => {
+                write!(f, "Ticket data too short for valid format")
             }
-            SessionTicketError::DecryptFailed => {
-                write!(f, "failed to decrypt or authenticate session ticket")
+            TicketError::AuthenticationFailure => {
+                write!(f, "Ticket decryption or authentication failed")
             }
-            SessionTicketError::Expired => write!(f, "session ticket has expired"),
-            SessionTicketError::NotYetValid => {
-                write!(f, "session ticket not yet valid (clock skew?)")
+            TicketError::TicketExpired => write!(f, "Ticket validity period elapsed"),
+            TicketError::FutureTicket => {
+                write!(f, "Ticket not yet valid - possible clock skew")
             }
         }
     }
 }
 
-impl std::error::Error for SessionTicketError {}
+impl std::error::Error for TicketError {}
 
-/// Label used as associated data for AEAD.
-const TICKET_AAD: &[u8] = b"HSIP-TICKET-V1";
+// AEAD associated data label
+const TICKET_LABEL: &[u8] = b"HSIP-TICKET-V1";
 
-const INNER_LEN: usize = 32 + 4 + 8 + 8; // PeerId(32) + caps(u32) + 2x u64
+const PAYLOAD_SIZE: usize = 32 + 4 + 8 + 8; // PeerId + caps + timestamps
 
-fn encode_inner(data: &SessionTicketData) -> [u8; INNER_LEN] {
-    let mut buf = [0u8; INNER_LEN];
+fn serialize_payload(payload: &TicketPayload) -> [u8; PAYLOAD_SIZE] {
+    let mut buffer = [0u8; PAYLOAD_SIZE];
 
-    // peer_id: 32 bytes
-    buf[0..32].copy_from_slice(&data.peer_id.0);
+    buffer[0..32].copy_from_slice(&payload.peer_id.0);
+    buffer[32..36].copy_from_slice(&payload.caps.0.to_le_bytes());
+    buffer[36..44].copy_from_slice(&payload.issued_at_ms.to_le_bytes());
+    buffer[44..52].copy_from_slice(&payload.expires_at_ms.to_le_bytes());
 
-    // caps: u32 LE
-    buf[32..36].copy_from_slice(&data.caps.0.to_le_bytes());
-
-    // issued_at_ms: u64 LE
-    buf[36..44].copy_from_slice(&data.issued_at_ms.to_le_bytes());
-
-    // expires_at_ms: u64 LE
-    buf[44..52].copy_from_slice(&data.expires_at_ms.to_le_bytes());
-
-    buf
+    buffer
 }
 
-fn decode_inner(buf: &[u8; INNER_LEN]) -> SessionTicketData {
-    let mut peer = [0u8; 32];
-    peer.copy_from_slice(&buf[0..32]);
-    let peer_id = PeerId(peer);
+fn deserialize_payload(buffer: &[u8; PAYLOAD_SIZE]) -> TicketPayload {
+    let mut peer_bytes = [0u8; 32];
+    peer_bytes.copy_from_slice(&buffer[0..32]);
+    let peer_id = PeerId(peer_bytes);
 
-    let caps_raw = u32::from_le_bytes(buf[32..36].try_into().unwrap());
-    let caps = HelloCapabilities(caps_raw);
+    let caps_value = u32::from_le_bytes(buffer[32..36].try_into().unwrap());
+    let caps = HelloCapabilities(caps_value);
 
-    let issued_at_ms = u64::from_le_bytes(buf[36..44].try_into().unwrap());
-    let expires_at_ms = u64::from_le_bytes(buf[44..52].try_into().unwrap());
+    let issued_at_ms = u64::from_le_bytes(buffer[36..44].try_into().unwrap());
+    let expires_at_ms = u64::from_le_bytes(buffer[44..52].try_into().unwrap());
 
-    SessionTicketData {
+    TicketPayload {
         peer_id,
         caps,
         issued_at_ms,
@@ -138,54 +127,62 @@ fn decode_inner(buf: &[u8; INNER_LEN]) -> SessionTicketData {
     }
 }
 
-/// Create an encrypted resumption ticket for a peer.
-///
-/// `requested_lifetime_ms` must be <= cfg.max_lifetime_ms.
-pub fn create_session_ticket(
-    key: &SessionTicketKey,
-    cfg: &SessionTicketConfig,
+// Generate encrypted resumption ticket for authenticated peer
+// Lifetime must not exceed maximum
+pub fn issue_resumption_ticket(
+    key: &TicketEncryptionKey,
+    policy: &TicketPolicy,
     peer_id: PeerId,
     caps: HelloCapabilities,
-    now_ms: u64,
-    requested_lifetime_ms: u64,
-) -> Result<Vec<u8>, SessionTicketError> {
-    if requested_lifetime_ms > cfg.max_lifetime_ms {
-        return Err(SessionTicketError::TooLongLifetime);
+    current_time_ms: u64,
+    lifetime_ms: u64,
+) -> Result<Vec<u8>, TicketError> {
+    if lifetime_ms > policy.max_validity_duration_ms {
+        return Err(TicketError::ExcessiveLifetime);
     }
 
-    let issued_at_ms = now_ms;
-    let expires_at_ms = now_ms + requested_lifetime_ms;
+    let issued_at_ms = current_time_ms;
+    let expires_at_ms = current_time_ms + lifetime_ms;
 
-    let inner = SessionTicketData {
+    let payload = TicketPayload {
         peer_id,
         caps,
         issued_at_ms,
         expires_at_ms,
     };
 
-    let inner_bytes = encode_inner(&inner);
+    let payload_bytes = serialize_payload(&payload);
 
-    // Build cipher
-    let key_bytes = key.as_key();
-    let cipher = ChaCha20Poly1305::new(&key_bytes);
+    let cipher_key = key.as_key();
+    let cipher = ChaCha20Poly1305::new(&cipher_key);
 
+<<<<<<< HEAD
     // Random 96-bit nonce
     let mut nonce_bytes = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_bytes);
     let nonce: Nonce = nonce_bytes.into();
+=======
+    let mut nonce_buffer = [0u8; 12];
+    OsRng.fill_bytes(&mut nonce_buffer);
+    let nonce = Nonce::from_slice(&nonce_buffer);
+>>>>>>> 731c98a551750235e27c2d5e85a0b5798cfedc39
 
-    // Encrypt
-    let mut ct = inner_bytes.to_vec();
+    let mut ciphertext = payload_bytes.to_vec();
     cipher
+<<<<<<< HEAD
         .encrypt_in_place(&nonce, TICKET_AAD, &mut ct)
         .map_err(|_| SessionTicketError::DecryptFailed)?;
+=======
+        .encrypt_in_place(nonce, TICKET_LABEL, &mut ciphertext)
+        .map_err(|_| TicketError::AuthenticationFailure)?;
+>>>>>>> 731c98a551750235e27c2d5e85a0b5798cfedc39
 
-    // Final ticket: nonce || ciphertext+tag
-    let mut out = nonce_bytes.to_vec();
-    out.extend_from_slice(&ct);
-    Ok(out)
+    let mut ticket = nonce_buffer.to_vec();
+    ticket.extend_from_slice(&ciphertext);
+    Ok(ticket)
 }
 
+<<<<<<< HEAD
 /// Decrypt and validate a resumption ticket.
 ///
 /// Checks:
@@ -201,42 +198,61 @@ pub fn decrypt_session_ticket(
     // nonce(12) + inner(52) + tag(16) = 80 bytes minimum
     if ticket.len() < 12 + INNER_LEN + 16 {
         return Err(SessionTicketError::TicketTooShort);
+=======
+// Decrypt and validate resumption ticket
+// Verifies length, AEAD integrity, and temporal validity
+pub fn validate_resumption_ticket(
+    key: &TicketEncryptionKey,
+    policy: &TicketPolicy,
+    ticket_data: &[u8],
+    current_time_ms: u64,
+) -> Result<TicketPayload, TicketError> {
+    // Minimum: nonce(12) + payload(52) + tag(16) = 80 bytes
+    if ticket_data.len() < 12 + PAYLOAD_SIZE + 16 {
+        return Err(TicketError::InsufficientLength);
+>>>>>>> 731c98a551750235e27c2d5e85a0b5798cfedc39
     }
 
-    let (nonce_part, ct_part) = ticket.split_at(12);
+    let (nonce_bytes, ciphertext_bytes) = ticket_data.split_at(12);
 
+<<<<<<< HEAD
     let nonce_array: [u8; 12] = nonce_part.try_into().unwrap();
     let nonce: Nonce = nonce_array.into();
+=======
+    let nonce = Nonce::from_slice(nonce_bytes);
+>>>>>>> 731c98a551750235e27c2d5e85a0b5798cfedc39
 
-    let key_bytes = key.as_key();
-    let cipher = ChaCha20Poly1305::new(&key_bytes);
+    let cipher_key = key.as_key();
+    let cipher = ChaCha20Poly1305::new(&cipher_key);
 
-    let mut buf = ct_part.to_vec();
+    let mut plaintext = ciphertext_bytes.to_vec();
 
     cipher
+<<<<<<< HEAD
         .decrypt_in_place(&nonce, TICKET_AAD, &mut buf)
         .map_err(|_| SessionTicketError::DecryptFailed)?;
+=======
+        .decrypt_in_place(nonce, TICKET_LABEL, &mut plaintext)
+        .map_err(|_| TicketError::AuthenticationFailure)?;
+>>>>>>> 731c98a551750235e27c2d5e85a0b5798cfedc39
 
-    if buf.len() != INNER_LEN {
-        // should never happen if format is correct
-        return Err(SessionTicketError::DecryptFailed);
+    if plaintext.len() != PAYLOAD_SIZE {
+        return Err(TicketError::AuthenticationFailure);
     }
 
-    let mut inner_bytes = [0u8; INNER_LEN];
-    inner_bytes.copy_from_slice(&buf);
-    let data = decode_inner(&inner_bytes);
+    let mut payload_buffer = [0u8; PAYLOAD_SIZE];
+    payload_buffer.copy_from_slice(&plaintext);
+    let payload = deserialize_payload(&payload_buffer);
 
-    if now_ms < data.issued_at_ms {
-        return Err(SessionTicketError::NotYetValid);
+    if current_time_ms < payload.issued_at_ms {
+        return Err(TicketError::FutureTicket);
     }
 
-    if now_ms > data.expires_at_ms {
-        return Err(SessionTicketError::Expired);
+    if current_time_ms > payload.expires_at_ms {
+        return Err(TicketError::TicketExpired);
     }
 
-    // NOTE: For MVP, we just return data.
-    // Caller can double-check peer_id against current identity if desired.
-    Ok(data)
+    Ok(payload)
 }
 
 #[cfg(test)]
@@ -244,41 +260,42 @@ mod tests {
     use super::*;
     use crate::hello::PeerId;
 
-    fn now_ms() -> u64 {
+    fn test_timestamp() -> u64 {
         1_700_000_000_000
     }
 
     #[test]
-    fn ticket_roundtrip() {
-        let key = SessionTicketKey::new([7u8; 32]);
-        let cfg = SessionTicketConfig::default();
+    fn ticket_creation_and_validation() {
+        let key = TicketEncryptionKey::new([7u8; 32]);
+        let policy = TicketPolicy::default();
 
         let peer_id = PeerId([1u8; 32]);
         let caps = HelloCapabilities::default_local();
 
-        let ticket = create_session_ticket(&key, &cfg, peer_id, caps, now_ms(), 30_000)
-            .expect("ticket should be created");
+        let ticket = issue_resumption_ticket(&key, &policy, peer_id, caps, test_timestamp(), 30_000)
+            .expect("Ticket should be created successfully");
 
-        let data = decrypt_session_ticket(&key, &cfg, &ticket, now_ms() + 10_000)
-            .expect("ticket should be valid");
+        let payload =
+            validate_resumption_ticket(&key, &policy, &ticket, test_timestamp() + 10_000)
+                .expect("Ticket should validate successfully");
 
-        assert_eq!(data.peer_id.0, peer_id.0);
-        assert!(data.caps.supports(crate::hello::CAP_CONSENT_LAYER));
+        assert_eq!(payload.peer_id.0, peer_id.0);
+        assert!(payload.caps.supports(crate::hello::CAP_CONSENT_LAYER));
     }
 
     #[test]
-    fn ticket_expires() {
-        let key = SessionTicketKey::new([9u8; 32]);
-        let cfg = SessionTicketConfig::default();
+    fn expired_ticket_rejected() {
+        let key = TicketEncryptionKey::new([9u8; 32]);
+        let policy = TicketPolicy::default();
 
         let peer_id = PeerId([2u8; 32]);
         let caps = HelloCapabilities::default_local();
 
-        let ticket = create_session_ticket(&key, &cfg, peer_id, caps, now_ms(), 10_000)
-            .expect("ticket should be created");
+        let ticket = issue_resumption_ticket(&key, &policy, peer_id, caps, test_timestamp(), 10_000)
+            .expect("Ticket should be created");
 
-        let err = decrypt_session_ticket(&key, &cfg, &ticket, now_ms() + 11_000).unwrap_err();
+        let result = validate_resumption_ticket(&key, &policy, &ticket, test_timestamp() + 11_000);
 
-        matches!(err, SessionTicketError::Expired);
+        assert!(matches!(result, Err(TicketError::TicketExpired)));
     }
 }

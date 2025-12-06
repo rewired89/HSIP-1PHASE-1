@@ -57,6 +57,7 @@ Future versions:
 
 ## 📞 Contact / Attribution
 
+<<<<<<< HEAD
 **Nyx Systems LLC**
 HSIP — Human-Secure Internet Protocol
 Miami, FL
@@ -67,3 +68,10 @@ Primary author: Rewired89
 
 That’s it.  
 Simple, clean, professional, auditor-ready.
+=======
+**Nyx Systems LLC**  
+HSIP — Hyper-Secure Internet Protocol  
+Miami, FL
+
+Primary author: Rewired89
+>>>>>>> 731c98a551750235e27c2d5e85a0b5798cfedc39

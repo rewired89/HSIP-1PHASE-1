@@ -1,129 +1,119 @@
-# HSIP
+**HSIP**
 
-**Cryptographic consent protocol for secure peer-to-peer communication.**
+Consent-based secure communication protocol with strong cryptography and explicit user authorization at the transport layer.
 
-HSIP enforces consent at the protocol level using capability-based tokens. Unlike application-layer solutions, consent violations are cryptographically impossible.
+HSIP enforces consent through capability tokens, ensuring that communication only occurs when explicitly granted.
+Unlike application-layer solutions, HSIP embeds consent directly into the protocol itself.
 
-**Status:** Alpha (security audit in progress)  
-**Platform:** Windows 10/11 (Linux/Mac coming soon)
+**Status: Alpha
+Platforms: Windows 10/11 (Linux & macOS planned)**
 
----
+**Features**
+🔐 Core Protocol
+Identity based on Ed25519
+Capability tokens (time-bounded, permission-scoped)
+Encrypted sessions using X25519 + ChaCha20-Poly1305
+Optional reputation-based peer filtering
+Explicit, cryptographically enforced consent
 
-## Features
+**🔧 Included in this Release**
+Background daemon with HTTP API
+System tray indicator (Windows)
+CLI tools for debugging and testing
+Optional local gateway (for development and inspection)
 
-**Core Protocol:**
-- Ed25519 identity (self-sovereign, no central registry)
-- Capability-based consent tokens (time-bounded, granular permissions)
-- X25519 + ChaCha20-Poly1305 session encryption
-- Reputation-based peer filtering
+**Quick Start (Windows)**
+Install:
+# Download the installer from Releases
+# Run: HSIP-Setup.exe
 
-**This Release Includes:**
-- Background daemon with HTTP API
-- System tray status indicator
-- CLI tools for testing
-- Optional local gateway (browser traffic inspection)
-
----
-
-## Quick Start
-
-**Install:**
-```powershell
-# Download installer from Releases
-# Run HSIP-Setup.exe
-```
-
-**Verify it's running:**
-```powershell
+Check status:
 curl http://127.0.0.1:8787/status
-```
 
-**Should return:**
-```json
+Expected output:
 {
   "protected": true,
-  "active_sessions": 0,
-  "cipher": "ChaCha20-Poly1305"
+  "active_sessions": 0
 }
-```
 
----
+**Use Cases**
+Telemedicine – patient-controlled access to sessions and data
+IoT – device-to-device authorization with token expiration
+Finance – consent-verifiable operations (PSD2/Open Banking workflows)
+Privacy Apps – enforce user preferences cryptographically
 
-## Use Cases
+**Architecture Overview**
+hsip-cli             # CLI for testing and development
+  └── communicates with:
+      hsip-daemon    # Background service with HTTP API
+        ├── /status
+        ├── /sessions
+        └── /consent
 
-**Telemedicine:** HIPAA-compliant consent tokens for patient data access
+hsip-tray            # System tray companion (optional)
+hsip-gateway         # Local proxy for testing use cases (optional)
 
-**IoT:** Device-to-device authorization with automatic expiration
 
-**Finance:** PSD2/Open Banking consent verification
+**Documentation**
+Protocol Specification — docs/PROTOCOL_SPEC.md
+API Reference — docs/API_REFERENCE.md
+Examples — docs/EXAMPLES.md
 
-**Privacy Apps:** Protocol-level enforcement of user preferences
-
----
-
-## Architecture
-```
-hsip-cli daemon          # Core protocol daemon
-  ├─ :8787/status       # Status API
-  ├─ :8787/sessions     # Session management
-  └─ :8787/consent      # Consent token operations
-
-hsip-tray               # System tray indicator (optional)
-hsip-gateway            # Local proxy for testing (optional)
-```
-
----
-
-## Documentation
-
-- [Protocol Specification](docs/PROTOCOL_SPEC.md)
-- [API Reference](docs/API_REFERENCE.md)
-- [Examples](docs/EXAMPLES.md)
-
----
-
-## Development
-
-**Build from source:**
-```powershell
+**Development**
+Build from source:
 git clone https://github.com/rewired89/HSIP.git
 cd HSIP
 cargo build --release
-```
 
 **Run tests:**
-```powershell
 cargo test
-```
 
-**Contributions welcome.** See [CONTRIBUTING] (docs/CONTRIBUTING.md)
+**Contributions welcome.**
+ See CONTRIBUTING
+.
 
----
+**Current Status**
+✔ Working
+Consent token creation/validation
+Secure session establishment
+Reputation filtering
+Background daemon + tools
+Windows integration
 
-## Status
+**🚧 In Progress**
+Cross-platform support (Linux/macOS)
+Developer SDKs (Python/JS)
+Extended test coverage
 
-**What works:**
-✅ Consent token issuance/verification  
-✅ Secure session establishment  
-✅ Reputation-based filtering  
-✅ Background daemon + API  
+**📝 Planned**
+Session resumption
+Connection migration
+Multi-device identity workflow
 
-**In progress:**
-🚧 Security audit (Mozilla MOSS)  
-🚧 Python/JavaScript SDKs  
-🚧 Post-quantum crypto option  
+**Security**
+HSIP is currently in alpha and not yet recommended for production deployments.
 
-**Planned:**
-📋 Session resumption  
-📋 Connection migration  
-📋 Multi-device identity  
+**Cryptography**
+Ed25519 for identity and signatures
+X25519 for key agreement
+ChaCha20-Poly1305 for authenticated encryption
 
----
+**Reporting**
+Please report vulnerabilities privately to:
+nyxsystemsllc@gmail.com
 
-## Security
+**License**
+HSIP Community License (Non-Commercial)
+Free for personal, educational, research, and open-source projects
+Commercial use requires an Enterprise License from Nyx Systems LLC
+See the full license in LICENSE.
+For commercial inquiries: nyxsystemsllc@gmail.com
 
-**Current status:** Alpha - not production ready
+**Contact**
+GitHub Issues: https://github.com/rewired89/HSIP/issues
+Email: nyxsystemsllc@gmail.com
 
+<<<<<<< HEAD
 **Audits:**
 - Mozilla security audit: In progress
 - Additional audits planned
@@ -153,3 +143,5 @@ For commercial licensing: nyxsystemsllc@gmail.com
 
 - GitHub: [Issues](https://github.com/rewired89/HSIP/issues)
 - Email: nyxsystemsllc@gmail.com
+=======
+>>>>>>> 731c98a551750235e27c2d5e85a0b5798cfedc39

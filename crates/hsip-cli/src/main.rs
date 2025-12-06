@@ -1629,8 +1629,7 @@ fn run_demo_site() {
                     );
                     let _ = req.respond(resp);
                 } else {
-                    let resp =
-                        Response::from_string("Not Found").with_status_code(StatusCode(404));
+                    let resp = Response::from_string("Not Found").with_status_code(StatusCode(404));
                     let _ = req.respond(resp);
                 }
             }

@@ -7,7 +7,7 @@ use hsip_core::identity::peer_id_from_pubkey;
 use hsip_core::keystore::load_keypair;
 use serde::{Deserialize, Serialize};
 
-/// Capability set (MVP)
+/// Authorization capability enumeration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Capability {
@@ -18,12 +18,12 @@ pub enum Capability {
     Ping,
 }
 
-/// Canonical consent token (MVP)
+/// Cryptographically signed consent authorization token
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsentToken {
-    /// Issuer PeerId (derived from issuer vk)
+    /// Token issuer peer identifier (derived from issuer public key)
     pub issuer: String,
-    /// Legacy alias for compatibility
+    /// Backward compatibility alias
     pub issuer_peer: String,
     pub grantee: String,
     pub capabilities: Vec<Capability>,
@@ -57,93 +57,119 @@ pub enum TokenCmd {
     Verify(TokenVerifyArgs),
 }
 
-// -----------------------------------------------------------------------------
-// Public helpers expected by main.rs
-// -----------------------------------------------------------------------------
-
-pub fn issue_token(grantee: String, caps: Vec<Capability>, ttl_ms: u64) -> ConsentToken {
-    let (sk, vk) = load_keypair().expect("load identity");
-    issue_token_inner(&sk, &vk, &grantee, caps, ttl_ms).expect("issue token")
+/// Generate signed consent token with specified capabilities and lifetime
+pub fn issue_token(
+    grantee_identifier: String,
+    capability_list: Vec<Capability>,
+    lifetime_ms: u64,
+) -> ConsentToken {
+    let (signing_key, verifying_key) = load_keypair().expect("Failed to load identity keypair");
+    generate_signed_token(&signing_key, &verifying_key, &grantee_identifier, capability_list, lifetime_ms)
+        .expect("Token generation failed")
 }
 
-pub fn verify_token(tok: &ConsentToken, issuer_vk: &VerifyingKey) -> Result<(), String> {
-    if now_ms() > tok.expires_at_ms {
-        return Err("token expired".to_string());
-    }
+/// Validate token cryptographic signature and expiration
+pub fn verify_token(
+    token: &ConsentToken,
+    issuer_public_key: &VerifyingKey,
+) -> Result<(), String> {
+    check_token_expiration(token)?;
+    verify_token_signature(token, issuer_public_key)
+}
 
-    #[derive(Serialize)]
-    struct Canon<'a> {
-        issuer: &'a str,
-        grantee: &'a str,
-        capabilities: &'a [Capability],
-        expires_at_ms: u64,
+fn check_token_expiration(token: &ConsentToken) -> Result<(), String> {
+    if current_timestamp_ms() > token.expires_at_ms {
+        return Err("Token has expired".to_string());
     }
-    let canon = Canon {
-        issuer: &tok.issuer,
-        grantee: &tok.grantee,
-        capabilities: &tok.capabilities,
-        expires_at_ms: tok.expires_at_ms,
-    };
-    let message = serde_json::to_vec(&canon).map_err(|e| format!("canon json: {e}"))?;
+    Ok(())
+}
 
-    let sig_hex = tok.sig_hex.strip_prefix("0x").unwrap_or(&tok.sig_hex);
-    let sig_vec = hex::decode(sig_hex).map_err(|_| "bad sig hex".to_string())?;
-    let sig_arr: [u8; 64] = sig_vec
+fn verify_token_signature(
+    token: &ConsentToken,
+    issuer_key: &VerifyingKey,
+) -> Result<(), String> {
+    let canonical_message = serialize_token_for_signing(
+        &token.issuer,
+        &token.grantee,
+        &token.capabilities,
+        token.expires_at_ms,
+    )?;
+
+    let signature_hex = token.sig_hex.strip_prefix("0x").unwrap_or(&token.sig_hex);
+    let signature_bytes = hex::decode(signature_hex)
+        .map_err(|_| "Invalid signature hex encoding")?;
+
+    let signature_array: [u8; 64] = signature_bytes
         .try_into()
-        .map_err(|_| "sig must be 64 bytes".to_string())?;
-    let sig = Signature::from_bytes(&sig_arr);
+        .map_err(|_| "Signature must be exactly 64 bytes")?;
 
-    issuer_vk
-        .verify(&message, &sig)
-        .map_err(|_| "bad signature".to_string())
+    let signature = Signature::from_bytes(&signature_array);
+
+    issuer_key
+        .verify(&canonical_message, &signature)
+        .map_err(|_| "Signature verification failed")?;
+
+    Ok(())
 }
 
-// -----------------------------------------------------------------------------
-// Internal
-// -----------------------------------------------------------------------------
-
-fn issue_token_inner(
-    sk: &SigningKey,
-    vk: &VerifyingKey,
-    grantee: &str,
-    caps: Vec<Capability>,
-    ttl_ms: u64,
+fn generate_signed_token(
+    signing_key: &SigningKey,
+    verifying_key: &VerifyingKey,
+    recipient: &str,
+    capabilities: Vec<Capability>,
+    lifetime_ms: u64,
 ) -> Result<ConsentToken, String> {
-    let issuer_pid = peer_id_from_pubkey(vk);
-    let expires_at_ms = now_ms().saturating_add(ttl_ms);
+    let issuer_peer_id = peer_id_from_pubkey(verifying_key);
+    let expiration_time = current_timestamp_ms().saturating_add(lifetime_ms);
 
-    #[derive(Serialize)]
-    struct Canon<'a> {
-        issuer: &'a str,
-        grantee: &'a str,
-        capabilities: &'a [Capability],
-        expires_at_ms: u64,
-    }
-    let canon = Canon {
-        issuer: &issuer_pid,
-        grantee,
-        capabilities: &caps,
-        expires_at_ms,
-    };
-    let message = serde_json::to_vec(&canon).map_err(|e| format!("canon json: {e}"))?;
+    let signing_message = serialize_token_for_signing(
+        &issuer_peer_id,
+        recipient,
+        &capabilities,
+        expiration_time,
+    )?;
 
-    let sig = sk.sign(&message);
-    let sig_hex = hex::encode(sig.to_bytes());
+    let signature = signing_key.sign(&signing_message);
+    let signature_encoded = hex::encode(signature.to_bytes());
 
     Ok(ConsentToken {
-        issuer: issuer_pid.clone(),
-        issuer_peer: issuer_pid,
-        grantee: grantee.to_string(),
-        capabilities: caps,
-        expires_at_ms,
-        sig_hex,
+        issuer: issuer_peer_id.clone(),
+        issuer_peer: issuer_peer_id,
+        grantee: recipient.to_string(),
+        capabilities,
+        expires_at_ms: expiration_time,
+        sig_hex: signature_encoded,
     })
 }
 
-fn now_ms() -> u64 {
+fn serialize_token_for_signing(
+    issuer_id: &str,
+    recipient_id: &str,
+    caps: &[Capability],
+    expiration: u64,
+) -> Result<Vec<u8>, String> {
+    #[derive(Serialize)]
+    struct CanonicalForm<'a> {
+        issuer: &'a str,
+        grantee: &'a str,
+        capabilities: &'a [Capability],
+        expires_at_ms: u64,
+    }
+
+    let canonical = CanonicalForm {
+        issuer: issuer_id,
+        grantee: recipient_id,
+        capabilities: caps,
+        expires_at_ms: expiration,
+    };
+
+    serde_json::to_vec(&canonical).map_err(|e| format!("Serialization failed: {e}"))
+}
+
+fn current_timestamp_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("clock")
+        .expect("System clock error")
         .as_millis() as u64
 }

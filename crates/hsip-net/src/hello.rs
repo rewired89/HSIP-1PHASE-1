@@ -1,4 +1,4 @@
-use base64::Engine; // trait for .encode()
+use base64::Engine;
 use ed25519_dalek::{Signature, SignatureError, Signer, SigningKey, VerifyingKey};
 use hsip_core::identity::peer_id_from_pubkey;
 use rand::rngs::OsRng;
@@ -8,97 +8,125 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Hello {
     #[serde(rename = "type")]
-    pub msg_type: String, // "HELLO"
-    pub peer_id: String,     // derived from pubkey (blake3 -> base32[26])
-    pub pub_key_hex: String, // hex(32B)
+    pub msg_type: String,
+    pub peer_id: String,
+    pub pub_key_hex: String,
     pub caps: Vec<String>,
-    pub ts: u64,       // unix ms
-    pub nonce: String, // base64(12 bytes)
-    pub sig: String,   // hex(64B ed25519 signature)
+    pub ts: u64,
+    pub nonce: String,
+    pub sig: String,
 }
 
+// Detect local node capabilities
 #[must_use]
-fn caps_detect() -> Vec<String> {
-    vec![
-        "pqc=0".into(),
-        "dtn=1".into(),
-        "mesh=1".into(),
-        "sat=0".into(),
-        "consent=1".into(),
-    ]
+fn detect_local_capabilities() -> Vec<String> {
+    let mut capabilities = Vec::with_capacity(5);
+    capabilities.push("pqc=0".into());
+    capabilities.push("dtn=1".into());
+    capabilities.push("mesh=1".into());
+    capabilities.push("sat=0".into());
+    capabilities.push("consent=1".into());
+    capabilities
 }
 
+// Generate canonical signing payload from HELLO components
 #[must_use]
-fn preimage(peer_id: &str, pub_key_hex: &str, caps: &[String], ts: u64, nonce_b64: &str) -> String {
+fn generate_signature_payload(
+    peer_identity: &str,
+    pubkey_encoded: &str,
+    capability_list: &[String],
+    timestamp: u64,
+    nonce_encoded: &str,
+) -> String {
+    let caps_joined = capability_list.join(",");
     format!(
         "HELLO|{}|{}|{}|{}|{}",
-        peer_id,
-        pub_key_hex,
-        caps.join(","),
-        ts,
-        nonce_b64
+        peer_identity, pubkey_encoded, caps_joined, timestamp, nonce_encoded
     )
 }
 
-/// Build a signed HELLO message bound to capabilities and a random nonce.
-///
-/// # Returns
-/// A fully populated `Hello` struct ready to send.
+// Construct cryptographically signed HELLO message
 #[must_use]
-pub fn build_hello(sk: &SigningKey, vk: &VerifyingKey, now_ms: u64) -> Hello {
-    let peer_id = peer_id_from_pubkey(vk);
-    let pub_key_hex = hex::encode(vk.as_bytes());
+pub fn build_hello(
+    signing_key: &SigningKey,
+    verifying_key: &VerifyingKey,
+    current_timestamp_ms: u64,
+) -> Hello {
+    let peer_identity = peer_id_from_pubkey(verifying_key);
+    let pubkey_encoded = hex::encode(verifying_key.as_bytes());
 
-    // 12-byte random nonce → base64 (no pad)
-    let mut n = [0u8; 12];
-    OsRng.fill_bytes(&mut n);
-    let nonce_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(n);
+    // Generate 12-byte cryptographic nonce
+    let mut nonce_buffer = [0u8; 12];
+    OsRng.fill_bytes(&mut nonce_buffer);
+    let nonce_encoded = base64::engine::general_purpose::STANDARD_NO_PAD.encode(nonce_buffer);
 
-    let caps = caps_detect();
+    let capability_list = detect_local_capabilities();
 
-    let pre = preimage(&peer_id, &pub_key_hex, &caps, now_ms, &nonce_b64);
-    let sig = sk.sign(pre.as_bytes());
-    let sig_hex = hex::encode(sig.to_bytes());
+    let signing_payload = generate_signature_payload(
+        &peer_identity,
+        &pubkey_encoded,
+        &capability_list,
+        current_timestamp_ms,
+        &nonce_encoded,
+    );
+
+    let signature = signing_key.sign(signing_payload.as_bytes());
+    let signature_encoded = hex::encode(signature.to_bytes());
 
     Hello {
         msg_type: "HELLO".into(),
-        peer_id,
-        pub_key_hex,
-        caps,
-        ts: now_ms,
-        nonce: nonce_b64,
-        sig: sig_hex,
+        peer_id: peer_identity,
+        pub_key_hex: pubkey_encoded,
+        caps: capability_list,
+        ts: current_timestamp_ms,
+        nonce: nonce_encoded,
+        sig: signature_encoded,
     }
 }
 
-/// Verify a HELLO message’s signature and identity binding.
-///
-/// # Errors
-/// Returns an error string if:
-/// - the public key hex is malformed or wrong length,
-/// - the derived PeerID doesn’t match the provided public key,
-/// - or the signature verification fails.
-pub fn verify_hello(h: &Hello) -> Result<(), String> {
-    // 1) Rebuild verifying key from pub_key_hex
-    let bytes = hex::decode(&h.pub_key_hex).map_err(|e| format!("bad pub key hex: {e}"))?;
-    let arr: [u8; 32] = bytes
-        .try_into()
-        .map_err(|_| String::from("pub key wrong length"))?;
-    let vk = VerifyingKey::from_bytes(&arr).map_err(|e| format!("vk error: {e}"))?;
+// Validate HELLO message cryptographic integrity and identity binding
+// # Errors
+// Returns error for malformed keys, identity mismatch, or signature verification failure
+pub fn verify_hello(hello_msg: &Hello) -> Result<(), String> {
+    // Reconstruct verifying key from hex-encoded public key
+    let pubkey_bytes = hex::decode(&hello_msg.pub_key_hex)
+        .map_err(|e| format!("Public key hex decoding failed: {e}"))?;
 
-    // 2) Check peer_id matches pubkey
-    let expect_pid = peer_id_from_pubkey(&vk);
-    if expect_pid != h.peer_id {
-        return Err(String::from("peer_id does not match public key"));
+    let pubkey_array: [u8; 32] = pubkey_bytes
+        .try_into()
+        .map_err(|_| "Public key must be exactly 32 bytes")?;
+
+    let verifying_key = VerifyingKey::from_bytes(&pubkey_array)
+        .map_err(|e| format!("Failed to construct verifying key: {e}"))?;
+
+    // Validate peer ID derives from public key
+    let derived_peer_id = peer_id_from_pubkey(&verifying_key);
+    if derived_peer_id != hello_msg.peer_id {
+        return Err("Peer ID does not match public key derivation".into());
     }
 
-    // 3) Verify signature over canonical preimage
-    let pre = preimage(&h.peer_id, &h.pub_key_hex, &h.caps, h.ts, &h.nonce);
-    let sig_bytes = hex::decode(&h.sig).map_err(|e| format!("sig hex error: {e}"))?;
-    let sig_arr: [u8; 64] = sig_bytes.try_into().map_err(|_| String::from("sig len"))?;
-    let sig = Signature::from_bytes(&sig_arr);
-    vk.verify_strict(pre.as_bytes(), &sig)
-        .map_err(|e: SignatureError| format!("verify failed: {e}"))?;
+    // Reconstruct canonical signing payload
+    let signing_payload = generate_signature_payload(
+        &hello_msg.peer_id,
+        &hello_msg.pub_key_hex,
+        &hello_msg.caps,
+        hello_msg.ts,
+        &hello_msg.nonce,
+    );
+
+    // Verify cryptographic signature
+    let signature_bytes = hex::decode(&hello_msg.sig)
+        .map_err(|e| format!("Signature hex decoding failed: {e}"))?;
+
+    let signature_array: [u8; 64] = signature_bytes
+        .try_into()
+        .map_err(|_| "Signature must be exactly 64 bytes")?;
+
+    let signature = Signature::from_bytes(&signature_array);
+
+    verifying_key
+        .verify_strict(signing_payload.as_bytes(), &signature)
+        .map_err(|e: SignatureError| format!("Signature verification failed: {e}"))?;
 
     Ok(())
 }
