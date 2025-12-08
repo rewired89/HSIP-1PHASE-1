@@ -151,6 +151,47 @@ pub extern "C" fn hsip_ios_free_string(s: *mut c_char) {
     }
 }
 
+/// Get emoji fingerprint for contact verification (iOS).
+///
+/// Returns a C string containing 6 emoji separated by spaces, or NULL on error.
+/// Caller must free the returned string using hsip_ios_free_string.
+#[no_mangle]
+pub extern "C" fn hsip_ios_get_emoji_fingerprint(
+    our_public: *const u8,
+    their_public: *const u8,
+) -> *mut c_char {
+    use x25519_dalek::PublicKey;
+    use crate::ratchet::generate_emoji_fingerprint;
+
+    unsafe {
+        if our_public.is_null() || their_public.is_null() {
+            return std::ptr::null_mut();
+        }
+
+        // Convert to PublicKey
+        let our_bytes = std::slice::from_raw_parts(our_public, 32);
+        let their_bytes = std::slice::from_raw_parts(their_public, 32);
+
+        let mut our_key_arr = [0u8; 32];
+        let mut their_key_arr = [0u8; 32];
+        our_key_arr.copy_from_slice(our_bytes);
+        their_key_arr.copy_from_slice(their_bytes);
+
+        let our_key = PublicKey::from(our_key_arr);
+        let their_key = PublicKey::from(their_key_arr);
+
+        // Generate emoji fingerprint
+        let emoji_vec = generate_emoji_fingerprint(&our_key, &their_key);
+        let emoji_string = emoji_vec.join(" ");
+
+        // Convert to C string
+        match CString::new(emoji_string) {
+            Ok(c_str) => c_str.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -125,7 +125,7 @@ impl HSIPMessage {
                 if let Some(id) = message_id {
                     result.push_str(&format!("Decrypt: hsip://m/{}\n", id));
                     result.push_str(&format!(
-                        "Or visit: https://hsip.io/decrypt?id={}\n\n",
+                        "Or visit: hsip://decrypt?id={}\n\n",
                         id
                     ));
                 }
