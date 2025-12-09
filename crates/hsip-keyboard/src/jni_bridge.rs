@@ -299,3 +299,92 @@ pub extern "C" fn Java_io_hsip_keyboard_HSIPEngine_nativeContainsHSIPMessage(
     // Check for HSIP message
     HSIPMessage::contains_hsip_message(&text_str)
 }
+
+/// Generate emoji fingerprint for contact verification.
+///
+/// Java signature:
+/// `public static native String[] nativeGetEmojiFingerprint(byte[] ourPublic, byte[] theirPublic);`
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn Java_io_hsip_keyboard_HSIPEngine_nativeGetEmojiFingerprint(
+    mut env: JNIEnv,
+    _class: JClass,
+    our_public: JByteArray,
+    their_public: JByteArray,
+) -> jni::sys::jobjectArray {
+    use x25519_dalek::PublicKey;
+    use crate::ratchet::generate_emoji_fingerprint;
+
+    // Convert our public key
+    let our_bytes = match env.convert_byte_array(&our_public) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            log::error!("Failed to convert our public key: {}", e);
+            return JClass::default().into_raw() as jni::sys::jobjectArray;
+        }
+    };
+
+    if our_bytes.len() != 32 {
+        log::error!("Invalid our public key length: {}", our_bytes.len());
+        return JClass::default().into_raw() as jni::sys::jobjectArray;
+    }
+
+    let mut our_key_bytes = [0u8; 32];
+    our_key_bytes.copy_from_slice(&our_bytes);
+    let our_key = PublicKey::from(our_key_bytes);
+
+    // Convert their public key
+    let their_bytes = match env.convert_byte_array(&their_public) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            log::error!("Failed to convert their public key: {}", e);
+            return JClass::default().into_raw() as jni::sys::jobjectArray;
+        }
+    };
+
+    if their_bytes.len() != 32 {
+        log::error!("Invalid their public key length: {}", their_bytes.len());
+        return JClass::default().into_raw() as jni::sys::jobjectArray;
+    }
+
+    let mut their_key_bytes = [0u8; 32];
+    their_key_bytes.copy_from_slice(&their_bytes);
+    let their_key = PublicKey::from(their_key_bytes);
+
+    // Generate emoji fingerprint
+    let emoji_vec = generate_emoji_fingerprint(&our_key, &their_key);
+
+    // Create Java String array
+    let string_class = match env.find_class("java/lang/String") {
+        Ok(cls) => cls,
+        Err(e) => {
+            log::error!("Failed to find String class: {}", e);
+            return JClass::default().into_raw() as jni::sys::jobjectArray;
+        }
+    };
+
+    let array = match env.new_object_array(6, string_class, JString::default()) {
+        Ok(arr) => arr,
+        Err(e) => {
+            log::error!("Failed to create array: {}", e);
+            return JClass::default().into_raw() as jni::sys::jobjectArray;
+        }
+    };
+
+    // Fill array with emoji strings
+    for (i, emoji) in emoji_vec.iter().enumerate() {
+        let jstr = match env.new_string(emoji) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("Failed to create emoji string: {}", e);
+                continue;
+            }
+        };
+
+        if let Err(e) = env.set_object_array_element(&array, i as i32, jstr) {
+            log::error!("Failed to set array element: {}", e);
+        }
+    }
+
+    array.into_raw()
+}

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <application
+        android:name=".HSIPApplication"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.HSIPKeyboard"
+        tools:targetApi="31">
+
+        <!-- Main Setup Activity -->
+        <activity
+            android:name=".ui.setup.SetupActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.HSIPKeyboard">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Deep Link for Contact Sharing -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <!-- hsip://add?id=...&name=... -->
+                <data android:scheme="hsip" android:host="add" />
+            </intent-filter>
+        </activity>
+
+        <!-- HSIP Keyboard Service (InputMethodService) -->
+        <service
+            android:name=".keyboard.HSIPKeyboardService"
+            android:label="@string/keyboard_name"
+            android:permission="android.permission.BIND_INPUT_METHOD"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.view.inputmethod.InputMethodService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/method" />
+        </service>
+
+        <!-- Settings Activity -->
+        <activity
+            android:name=".ui.settings.SettingsActivity"
+            android:exported="false"
+            android:label="@string/settings"
+            android:theme="@style/Theme.HSIPKeyboard" />
+
+        <!-- Contacts Management Activity -->
+        <activity
+            android:name=".ui.contacts.ContactsActivity"
+            android:exported="false"
+            android:label="@string/contacts"
+            android:theme="@style/Theme.HSIPKeyboard" />
+
+    </application>
+
+</manifest>

@@ -5,6 +5,7 @@
 pub mod crypto;
 pub mod message;
 pub mod session;
+pub mod ratchet;
 
 #[cfg(target_os = "android")]
 pub mod jni_bridge;
