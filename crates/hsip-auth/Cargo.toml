@@ -3,10 +3,7 @@ name = "hsip-auth"
 version = "0.1.0"
 edition = "2021"
 license-file = "../LICENSE"
-<<<<<<< HEAD
-=======
 
->>>>>>> 731c98a551750235e27c2d5e85a0b5798cfedc39
 
 [dependencies]
 anyhow = "1"
@@ -22,5 +19,3 @@ base64 = "0.22"
 hex = "0.4"
 sha2 = "0.10"
 dirs = "5"
-
-
