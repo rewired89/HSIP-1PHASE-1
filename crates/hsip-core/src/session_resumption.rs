@@ -156,49 +156,20 @@ pub fn issue_resumption_ticket(
     let cipher_key = key.as_key();
     let cipher = ChaCha20Poly1305::new(&cipher_key);
 
-<<<<<<< HEAD
-    // Random 96-bit nonce
-    let mut nonce_bytes = [0u8; 12];
-    OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce: Nonce = nonce_bytes.into();
-=======
     let mut nonce_buffer = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_buffer);
     let nonce = Nonce::from_slice(&nonce_buffer);
->>>>>>> 731c98a551750235e27c2d5e85a0b5798cfedc39
 
     let mut ciphertext = payload_bytes.to_vec();
     cipher
-<<<<<<< HEAD
-        .encrypt_in_place(&nonce, TICKET_AAD, &mut ct)
-        .map_err(|_| SessionTicketError::DecryptFailed)?;
-=======
         .encrypt_in_place(nonce, TICKET_LABEL, &mut ciphertext)
         .map_err(|_| TicketError::AuthenticationFailure)?;
->>>>>>> 731c98a551750235e27c2d5e85a0b5798cfedc39
 
     let mut ticket = nonce_buffer.to_vec();
     ticket.extend_from_slice(&ciphertext);
     Ok(ticket)
 }
 
-<<<<<<< HEAD
-/// Decrypt and validate a resumption ticket.
-///
-/// Checks:
-///   * length
-///   * AEAD integrity
-///   * issued_at/expires_at v.s. now_ms
-pub fn decrypt_session_ticket(
-    key: &SessionTicketKey,
-    _cfg: &SessionTicketConfig,
-    ticket: &[u8],
-    now_ms: u64,
-) -> Result<SessionTicketData, SessionTicketError> {
-    // nonce(12) + inner(52) + tag(16) = 80 bytes minimum
-    if ticket.len() < 12 + INNER_LEN + 16 {
-        return Err(SessionTicketError::TicketTooShort);
-=======
 // Decrypt and validate resumption ticket
 // Verifies length, AEAD integrity, and temporal validity
 pub fn validate_resumption_ticket(
@@ -210,17 +181,11 @@ pub fn validate_resumption_ticket(
     // Minimum: nonce(12) + payload(52) + tag(16) = 80 bytes
     if ticket_data.len() < 12 + PAYLOAD_SIZE + 16 {
         return Err(TicketError::InsufficientLength);
->>>>>>> 731c98a551750235e27c2d5e85a0b5798cfedc39
     }
 
     let (nonce_bytes, ciphertext_bytes) = ticket_data.split_at(12);
 
-<<<<<<< HEAD
-    let nonce_array: [u8; 12] = nonce_part.try_into().unwrap();
-    let nonce: Nonce = nonce_array.into();
-=======
     let nonce = Nonce::from_slice(nonce_bytes);
->>>>>>> 731c98a551750235e27c2d5e85a0b5798cfedc39
 
     let cipher_key = key.as_key();
     let cipher = ChaCha20Poly1305::new(&cipher_key);
@@ -228,13 +193,8 @@ pub fn validate_resumption_ticket(
     let mut plaintext = ciphertext_bytes.to_vec();
 
     cipher
-<<<<<<< HEAD
-        .decrypt_in_place(&nonce, TICKET_AAD, &mut buf)
-        .map_err(|_| SessionTicketError::DecryptFailed)?;
-=======
         .decrypt_in_place(nonce, TICKET_LABEL, &mut plaintext)
         .map_err(|_| TicketError::AuthenticationFailure)?;
->>>>>>> 731c98a551750235e27c2d5e85a0b5798cfedc39
 
     if plaintext.len() != PAYLOAD_SIZE {
         return Err(TicketError::AuthenticationFailure);
