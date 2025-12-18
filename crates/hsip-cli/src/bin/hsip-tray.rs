@@ -47,9 +47,13 @@ fn get_status() -> Result<Status> {
 }
 
 fn main() -> Result<()> {
-    // Minimal tray (no menu, no notifications)
+    // Three status colors:
+    // GREEN  = HSIP running and protected
+    // YELLOW = Active threats being blocked
+    // RED    = HSIP offline or error
     let red = solid_icon(16, 16, [200, 0, 0, 255]);
     let green = solid_icon(16, 16, [0, 200, 0, 255]);
+    let yellow = solid_icon(16, 16, [255, 200, 0, 255]);
 
     // IMPORTANT: tray-icon 0.21.x expects an Icon (not Option) on with_icon
     let tray: TrayIcon = TrayIconBuilder::new()
@@ -61,17 +65,34 @@ fn main() -> Result<()> {
     loop {
         match get_status() {
             Ok(s) => {
-                // set_icon takes Option<Icon> on 0.21.x
-                tray.set_icon(Some(green.clone())).ok();
-                let tt = format!(
-                    "HSIP ✓  {} | sess={} | egress={}",
-                    s.cipher, s.active_sessions, s.egress_peer
-                );
-                tray.set_tooltip(Some(&tt)).ok();
+                // Determine status based on protection and threats
+                let (icon, tooltip) = if !s.protected {
+                    // RED: Not protected (error state)
+                    let tt = "HSIP ✗ NOT PROTECTED - Check daemon";
+                    (red.clone(), tt.to_string())
+                } else if s.blocked_connections > 0 || s.blocked_ips > 0 || s.blocked_trackers > 0 {
+                    // YELLOW: Active blocking (threats detected and blocked)
+                    let tt = format!(
+                        "HSIP ⚠ BLOCKING THREATS | Blocked: {} connections, {} IPs, {} trackers | {}",
+                        s.blocked_connections, s.blocked_ips, s.blocked_trackers, s.cipher
+                    );
+                    (yellow.clone(), tt)
+                } else {
+                    // GREEN: Protected and secure
+                    let tt = format!(
+                        "HSIP ✓ PROTECTED | {} | Sessions: {} | Egress: {}",
+                        s.cipher, s.active_sessions, s.egress_peer
+                    );
+                    (green.clone(), tt)
+                };
+
+                tray.set_icon(Some(icon)).ok();
+                tray.set_tooltip(Some(&tooltip)).ok();
             }
             Err(_) => {
+                // RED: Daemon offline
                 tray.set_icon(Some(red.clone())).ok();
-                tray.set_tooltip(Some("HSIP ✗ offline")).ok();
+                tray.set_tooltip(Some("HSIP ✗ OFFLINE - Daemon not running")).ok();
             }
         }
 

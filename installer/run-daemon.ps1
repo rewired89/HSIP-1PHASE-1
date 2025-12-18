@@ -7,11 +7,14 @@ $err  = Join-Path $root "daemon.err"
 # Rotate simple log
 if (Test-Path $log) { Move-Item $log "$log.bak" -Force -ErrorAction SilentlyContinue }
 
+# Configure process to run hidden (no window)
 $psi = New-Object System.Diagnostics.ProcessStartInfo
 $psi.FileName  = $exe
 $psi.Arguments = 'daemon --status-addr 127.0.0.1:8787'
 $psi.WorkingDirectory = $root
 $psi.UseShellExecute  = $false
+$psi.CreateNoWindow   = $true              # CRITICAL: Don't create a window
+$psi.WindowStyle      = 'Hidden'           # Hide the window
 $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError  = $true
 $proc = [System.Diagnostics.Process]::Start($psi)
