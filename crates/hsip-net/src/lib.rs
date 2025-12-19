@@ -32,7 +32,3 @@ pub mod security {
     pub use super::guard;
     pub use super::consent_cache;
 }
-
-#[cfg(feature = "metrics")]
-mod network_metrics {
-}

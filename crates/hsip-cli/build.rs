@@ -8,9 +8,10 @@ fn main() {
 }
 
 #[cfg(windows)]
-fn configure_windows_executable() {
-    use std::path::PathBuf;
+use std::path::PathBuf;
 
+#[cfg(windows)]
+fn configure_windows_executable() {
     // Trigger rebuild when environment changes
     println!("cargo:rerun-if-env-changed=HSIP_NO_ICON");
 
@@ -34,7 +35,6 @@ fn icon_embedding_disabled() -> bool {
 
 #[cfg(windows)]
 fn locate_icon_file() -> PathBuf {
-    use std::path::PathBuf;
 
     let crate_directory = std::env::var("CARGO_MANIFEST_DIR")
         .expect("CARGO_MANIFEST_DIR environment variable not set");
