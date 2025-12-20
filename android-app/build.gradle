@@ -1,16 +1,13 @@
 // Top-level build file for HSIP Keyboard Android
-buildscript {
-    ext.kotlin_version = "1.9.20"
-    ext.compose_version = "1.5.4"
+plugins {
+    id 'com.android.application' version '8.1.4' apply false
+    id 'org.jetbrains.kotlin.android' version '1.9.20' apply false
+}
 
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath 'com.android.tools.build:gradle:8.1.4'
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-    }
+// Keep these for reference in app/build.gradle
+ext {
+    kotlin_version = "1.9.20"
+    compose_version = "1.5.4"
 }
 
 task clean(type: Delete) {
