@@ -10,8 +10,8 @@ class HSIPApplication : Application() {
             private set
 
         init {
-            // Load native Rust library
-            System.loadLibrary("hsip_keyboard")
+            // TODO: Load native Rust library when implemented
+            // System.loadLibrary("hsip_keyboard")
         }
     }
 

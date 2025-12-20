@@ -28,14 +28,23 @@ class HSIPEngine(context: Context) {
     }
 
     // ============================================
-    // Native JNI methods (implemented in Rust)
+    // Native JNI methods (TODO: implement in Rust)
     // ============================================
 
     /**
      * Generate new Ed25519 identity
      * Returns: Base64-encoded PeerID (32 bytes)
      */
-    private external fun nativeGenerateIdentity(): String
+    private fun nativeGenerateIdentity(): String {
+        // TODO: Replace with actual Rust JNI implementation
+        // For now, generate a mock PeerID for testing
+        return android.util.Base64.encodeToString(
+            java.security.SecureRandom().let { random ->
+                ByteArray(32).also { random.nextBytes(it) }
+            },
+            android.util.Base64.NO_WRAP
+        )
+    }
 
     /**
      * Encrypt plaintext message
@@ -45,11 +54,15 @@ class HSIPEngine(context: Context) {
      * @param peerId 32-byte recipient PeerID (Base64)
      * @return Encrypted message in format: 🔒<base64(version+peerID+nonce+ciphertext+tag)>
      */
-    private external fun nativeEncrypt(
+    private fun nativeEncrypt(
         plaintext: String,
         sessionKey: String,
         peerId: String
-    ): String
+    ): String {
+        // TODO: Replace with actual ChaCha20-Poly1305 encryption
+        // For now, return a mock encrypted message
+        return "🔒MOCK_ENCRYPTED_MESSAGE_$plaintext"
+    }
 
     /**
      * Decrypt encrypted message
@@ -58,25 +71,38 @@ class HSIPEngine(context: Context) {
      * @param sessionKey 32-byte session key (Base64)
      * @return Decrypted plaintext or null if decryption fails
      */
-    private external fun nativeDecrypt(
+    private fun nativeDecrypt(
         encrypted: String,
         sessionKey: String
-    ): String?
+    ): String? {
+        // TODO: Replace with actual ChaCha20-Poly1305 decryption
+        // For now, return mock decrypted message
+        return encrypted.removePrefix("🔒MOCK_ENCRYPTED_MESSAGE_")
+    }
 
     /**
      * Check if text contains HSIP encrypted message
      */
-    private external fun nativeContainsHSIPMessage(text: String): Boolean
+    private fun nativeContainsHSIPMessage(text: String): Boolean {
+        // TODO: Replace with actual HSIP message detection
+        return text.contains("🔒")
+    }
 
     /**
      * Extract HSIP message from text
      */
-    private external fun nativeExtractMessage(text: String): String?
+    private fun nativeExtractMessage(text: String): String? {
+        // TODO: Replace with actual HSIP message extraction
+        return if (text.contains("🔒")) text else null
+    }
 
     /**
      * Derive PeerID from public key
      */
-    private external fun nativeDerivePeerID(publicKey: String): String
+    private fun nativeDerivePeerID(publicKey: String): String {
+        // TODO: Replace with actual Ed25519 PeerID derivation
+        return publicKey
+    }
 
     // ============================================
     // Kotlin wrapper methods
