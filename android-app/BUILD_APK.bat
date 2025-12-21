@@ -13,7 +13,7 @@ echo.
 echo Building APK...
 echo.
 
-call gradlew.bat clean assembleDebug
+call "%~dp0gradlew.bat" clean assembleDebug
 
 echo.
 echo ============================================
