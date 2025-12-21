@@ -6,8 +6,6 @@ import android.view.inputmethod.EditorInfo
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.ComposeView
-import androidx.lifecycle.ViewTreeLifecycleOwner
-import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import io.hsip.keyboard.HSIPApplication
 import io.hsip.keyboard.crypto.Contact
 import io.hsip.keyboard.crypto.HSIPEngine
