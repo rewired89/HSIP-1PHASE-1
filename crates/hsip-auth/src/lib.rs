@@ -1,13 +1,7 @@
 // HSIP authentication subsystem
 // Provides peer identity management, secure key storage, and token-based authentication
 
-#[cfg(feature = "identity")]
 pub mod identity;
-
-#[cfg(not(feature = "identity"))]
-pub mod identity {
-}
-
 pub mod keystore;
 
 #[doc(inline)]

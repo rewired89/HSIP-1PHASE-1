@@ -13,4 +13,7 @@
     <color name="hsip_green">#FF32D74B</color>
     <color name="hsip_background_dark">#FF000000</color>
     <color name="hsip_surface_dark">#FF1C1C1E</color>
+
+    <!-- Launcher Icon -->
+    <color name="ic_launcher_background">#FF007AFF</color>
 </resources>
