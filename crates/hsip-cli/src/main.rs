@@ -7,8 +7,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 
 use hsip_core::consent::{
-    build_request, build_response, cid_hex, verify_request, verify_response, ConsentRequest,
-    ConsentResponse,
+    cid_hex, create_signed_request, create_signed_response, validate_request, validate_response,
+    ConsentRequest, ConsentResponse,
 };
 use hsip_core::identity::{generate_keypair, peer_id_from_pubkey, sk_to_hex, vk_to_hex};
 use hsip_core::keystore::{load_keypair, save_keypair};
@@ -602,7 +602,7 @@ fn main() {
             let (sk, vk) = load_keypair().expect("load identity first via `hsip init`");
             let data = fs::read(&file).expect("read file");
             let cid = cid_hex(&data);
-            let req = build_request(&sk, &vk, cid, purpose, expires_ms, now_ms());
+            let req = create_signed_request(&sk, &vk, cid, purpose, expires_ms, now_ms());
             let json = serde_json::to_string_pretty(&req).unwrap();
             fs::write(&out, json).expect("write out");
             println!("[CONSENT] wrote {}", out);
@@ -610,7 +610,7 @@ fn main() {
         Commands::ConsentVerify { file } => {
             let data = fs::read(&file).expect("read file");
             let req: ConsentRequest = serde_json::from_slice(&data).expect("parse json");
-            match verify_request(&req) {
+            match validate_request(&req) {
                 Ok(()) => println!("[CONSENT] [OK] request valid"),
                 Err(e) => println!("[CONSENT] [BAD] request invalid: {e}"),
             }
@@ -739,7 +739,7 @@ fn main() {
                                 if let Ok(req) = serde_json::from_slice::<ConsentRequest>(&pt) {
                                     let (sk, vk) = load_keypair().expect("identity");
                                     let resp =
-                                        build_response(&sk, &vk, &req, &decision, ttl_ms, now_ms())
+                                        create_signed_response(&sk, &vk, &req, &decision, ttl_ms, now_ms())
                                             .expect("build resp");
                                     let body = serde_json::to_vec(&resp).unwrap();
                                     match sess_tx.seal(AAD_CONTROL, &body) {
@@ -950,7 +950,7 @@ fn main() {
                 }
             }
 
-            let resp = build_response(&sk, &vk, &req, &final_decision, ttl_ms, now_ms())
+            let resp = create_signed_response(&sk, &vk, &req, &final_decision, ttl_ms, now_ms())
                 .expect("build response");
             let json = serde_json::to_string_pretty(&resp).unwrap();
             fs::write(&out, json).expect("write response");
@@ -966,7 +966,7 @@ fn main() {
                 let b = fs::read(&response).expect("read response");
                 serde_json::from_slice(&b).expect("parse response")
             };
-            match verify_response(&resp, &req) {
+            match validate_response(&resp, &req) {
                 Ok(()) => println!("[CONSENT] [OK] response is valid and bound to request"),
                 Err(e) => println!("[CONSENT] [BAD] response invalid: {e}"),
             }

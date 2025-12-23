@@ -5,9 +5,13 @@ edition = "2021"
 license-file = "../LICENSE"
 rust-version = "1.87"
 
+[features]
+default = []
+pqc = ["pqcrypto-kyber", "pqcrypto-dilithium", "pqcrypto-traits"]
+
 [dependencies]
 ed25519-dalek = { version = "2", features = ["rand_core"] }
-ed25519 = "2"          # <-- add this
+ed25519 = "2"
 rand = "0.8"
 blake3 = "1"
 data-encoding = "2"
@@ -16,4 +20,14 @@ dirs = "5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chacha20poly1305 = { version = "0.10", features = ["std"] }
+x25519-dalek = "2"
+hkdf = "0.12"
+sha2 = "0.10"
+zeroize = "1.8"
+
+# Post-quantum cryptography (optional, enabled with 'pqc' feature)
+# Uses pqcrypto ecosystem which provides stable NIST PQC implementations
+pqcrypto-kyber = { version = "0.8", optional = true }
+pqcrypto-dilithium = { version = "0.5", optional = true }
+pqcrypto-traits = { version = "0.3", optional = true }
 

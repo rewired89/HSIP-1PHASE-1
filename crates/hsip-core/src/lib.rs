@@ -21,3 +21,8 @@ pub mod keystore;
 pub mod wire {
     pub mod prefix;
 }
+
+/// Post-quantum cryptography module (requires 'pqc' feature)
+/// Provides hybrid X25519+ML-KEM key exchange and Ed25519+ML-DSA signatures
+#[cfg(feature = "pqc")]
+pub mod pqc;
