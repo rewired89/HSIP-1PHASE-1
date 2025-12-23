@@ -11,6 +11,7 @@ members = [
     "crates/hsip-verify",
     "crates/hsip-common",
     "crates/hsip-regenerative",
+    "crates/hsip-telemetry-guard",
 ]
 
 
