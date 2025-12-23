@@ -1,0 +1,33 @@
+[package]
+name = "hsip-common"
+version = "0.1.0"
+edition = "2021"
+license-file = "../LICENSE"
+rust-version = "1.87"
+description = "HSIP common utilities and quantum-inspired privacy features"
+
+[dependencies]
+# Cryptography
+blake3 = "1"
+rand = "0.8"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+chacha20poly1305 = { version = "0.10", features = ["std"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+
+# Time and async
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["sync", "time"] }
+
+# Error handling
+thiserror = "2.0"
+
+# Utilities
+zeroize = "1.8"
+parking_lot = "0.12"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

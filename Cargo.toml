@@ -9,6 +9,8 @@ members = [
     "crates/hsip-gateway",
     "crates/hsip-intercept",
     "crates/hsip-verify",
+    "crates/hsip-common",
+    "crates/hsip-regenerative",
 ]
 
 

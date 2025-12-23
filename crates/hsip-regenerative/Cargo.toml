@@ -1,0 +1,38 @@
+[package]
+name = "hsip-regenerative"
+version = "0.1.0"
+edition = "2021"
+authors = ["HSIP Team"]
+description = "Planarian-inspired distributed identity recovery for HSIP"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/HSIP/hsip"
+
+[dependencies]
+# Cryptography
+blake3 = "1"
+rand = "0.8"
+sha2 = "0.10"
+zeroize = { version = "1.8", features = ["derive"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async
+tokio = { version = "1", features = ["sync", "time"] }
+
+# Error handling
+thiserror = "2.0"
+
+# Shamir Secret Sharing
+sharks = "0.5"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[features]
+default = []
