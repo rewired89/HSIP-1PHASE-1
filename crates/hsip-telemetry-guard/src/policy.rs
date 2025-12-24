@@ -5,7 +5,7 @@
 
 use crate::{
     Decision, DecisionReason, DecisionType, EndpointDatabase, EndpointEntry,
-    FlowMeta, RiskLevel, TelemetryGuardError, TelemetryIntent, Result,
+    FlowMeta, RiskLevel, TelemetryIntent,
 };
 use chrono::Duration;
 use parking_lot::RwLock;

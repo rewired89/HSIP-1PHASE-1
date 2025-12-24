@@ -62,7 +62,7 @@ pub mod android;
 
 // Re-exports
 pub use error::{InterceptError, Result};
-pub use event::{EventMonitor, MessagingEvent, PlatformType};
+pub use event::{EventMonitor, MessagingEvent, PlatformType, EventType};
 pub use overlay::{InterceptOverlay, UserChoice};
 pub use patterns::{PatternMatcher, TriggerPattern};
 pub use router::HSIPRouter;

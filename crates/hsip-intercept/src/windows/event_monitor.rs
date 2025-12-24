@@ -4,22 +4,48 @@ use crate::{
     EventMonitor, MessagingEvent, EventType, PlatformType, InterceptConfig, Result, InterceptError,
 };
 use tokio::sync::mpsc;
-use tracing::{info, debug, warn, error};
+use tracing::{info, debug, error};
 use windows::{
     core::*,
     Win32::Foundation::*,
+    Win32::System::Com::{
+        CoInitializeEx, CoCreateInstance, CoUninitialize,
+        COINIT_APARTMENTTHREADED, CLSCTX_INPROC_SERVER,
+    },
     Win32::System::Threading::*,
     Win32::UI::Accessibility::*,
     Win32::UI::WindowsAndMessaging::*,
 };
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
+/// Wrapper for COM objects to mark them as Send+Sync.
+/// SAFETY: Windows COM objects with apartment threading are safe to move between threads
+/// when properly initialized per-thread.
+struct SendSyncWrapper<T>(Option<T>);
+
+unsafe impl<T> Send for SendSyncWrapper<T> {}
+unsafe impl<T> Sync for SendSyncWrapper<T> {}
+
+impl<T> SendSyncWrapper<T> {
+    fn new(val: T) -> Self {
+        Self(Some(val))
+    }
+
+    fn none() -> Self {
+        Self(None)
+    }
+
+    fn as_ref(&self) -> Option<&T> {
+        self.0.as_ref()
+    }
+}
+
 /// Windows event monitor using UI Automation API.
 pub struct WindowsEventMonitor {
     event_tx: mpsc::Sender<MessagingEvent>,
     config: InterceptConfig,
     running: Arc<AtomicBool>,
-    automation: Option<IUIAutomation>,
+    automation: SendSyncWrapper<IUIAutomation>,
 }
 
 impl WindowsEventMonitor {
@@ -32,7 +58,7 @@ impl WindowsEventMonitor {
             event_tx,
             config: config.clone(),
             running: Arc::new(AtomicBool::new(false)),
-            automation: None,
+            automation: SendSyncWrapper::none(),
         }))
     }
 
@@ -51,7 +77,7 @@ impl WindowsEventMonitor {
             )
             .map_err(|e| InterceptError::EventMonitor(format!("Failed to create IUIAutomation: {}", e)))?;
 
-            self.automation = Some(automation);
+            self.automation = SendSyncWrapper::new(automation);
             info!("UI Automation initialized successfully");
             Ok(())
         }
@@ -287,17 +313,58 @@ impl EventMonitor for WindowsEventMonitor {
         // Start polling loop
         self.running.store(true, Ordering::Relaxed);
 
-        // Spawn polling task
-        let monitor = Self {
-            event_tx: self.event_tx.clone(),
-            config: self.config.clone(),
-            running: Arc::clone(&self.running),
-            automation: None, // Polling doesn't need automation
-        };
+        // Spawn polling task using spawn_blocking for Windows API calls
+        let event_tx = self.event_tx.clone();
+        let config = self.config.clone();
+        let running = Arc::clone(&self.running);
 
-        tokio::spawn(async move {
-            if let Err(e) = monitor.poll_ui_changes().await {
-                error!("Polling error: {}", e);
+        tokio::task::spawn_blocking(move || {
+            let rt = tokio::runtime::Handle::current();
+            let mut last_focused_window: Option<WindowInfo> = None;
+
+            while running.load(Ordering::Relaxed) {
+                unsafe {
+                    let hwnd = GetForegroundWindow();
+                    if !hwnd.is_invalid() {
+                        if let Ok(window_info) = WindowsEventMonitor::get_window_info(hwnd) {
+                            // Check if window changed
+                            if Some(&window_info) != last_focused_window.as_ref() {
+                                // Create and send event synchronously
+                                let platform = PlatformType::from_process_name(&window_info.process_name);
+
+                                // Check for messaging window
+                                let title_lower = window_info.title.to_lowercase();
+                                let messaging_keywords = [
+                                    "compose", "message", "chat", "direct", "dm",
+                                    "messenger", "inbox", "conversation",
+                                ];
+
+                                if messaging_keywords.iter().any(|&kw| title_lower.contains(kw))
+                                   && config.is_platform_enabled(platform) {
+                                    let event = MessagingEvent::new(
+                                        platform,
+                                        EventType::WindowChange,
+                                        window_info.process_name.clone(),
+                                    )
+                                    .with_window_title(&window_info.title)
+                                    .with_metadata("class_name", &window_info.class_name);
+
+                                    let tx = event_tx.clone();
+                                    rt.spawn(async move {
+                                        if let Err(e) = tx.send(event).await {
+                                            error!("Failed to send event: {}", e);
+                                        }
+                                    });
+                                }
+
+                                last_focused_window = Some(window_info);
+                            }
+                        }
+                    }
+                }
+
+                // Sleep without async
+                std::thread::sleep(std::time::Duration::from_millis(500));
             }
         });
 
@@ -346,7 +413,7 @@ mod tests {
             event_tx: tx,
             config: config.clone(),
             running: Arc::new(AtomicBool::new(false)),
-            automation: None,
+            automation: SendSyncWrapper::none(),
         };
 
         let window = WindowInfo {

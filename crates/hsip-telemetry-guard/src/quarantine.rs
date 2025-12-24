@@ -3,9 +3,9 @@
 //! Captures telemetry that would have been sent for offline analysis.
 //! Perfect for OWASP testing and security audits.
 
-use crate::{FlowMeta, TelemetryIntent, RiskLevel, Decision, TelemetryGuardError, Result};
+use crate::{FlowMeta, TelemetryIntent, RiskLevel, TelemetryGuardError, Result};
 use blake3::Hasher;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};

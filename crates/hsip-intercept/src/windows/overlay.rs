@@ -9,14 +9,23 @@ use windows::{
     core::*,
     Win32::Foundation::*,
     Win32::Graphics::Gdi::*,
+    Win32::System::LibraryLoader::GetModuleHandleW,
     Win32::UI::WindowsAndMessaging::*,
 };
 use std::sync::{Arc, Mutex};
 
+/// Wrapper for HWND to mark it as Send+Sync.
+/// SAFETY: HWND is a raw pointer but Windows handles are thread-safe when used correctly.
+#[derive(Clone)]
+struct SendableHwnd(HWND);
+
+unsafe impl Send for SendableHwnd {}
+unsafe impl Sync for SendableHwnd {}
+
 /// Windows overlay implementation using layered window.
 pub struct WindowsOverlay {
     config: InterceptConfig,
-    hwnd: Arc<Mutex<Option<HWND>>>,
+    hwnd: Arc<Mutex<Option<SendableHwnd>>>,
     choice: Arc<Mutex<Option<UserChoice>>>,
 }
 
@@ -42,7 +51,7 @@ impl WindowsOverlay {
                 lpfnWndProc: Some(Self::window_proc),
                 hInstance: h_instance.into(),
                 lpszClassName: class_name,
-                hCursor: LoadCursorW(None, IDC_ARROW).ok(),
+                hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
                 hbrBackground: HBRUSH(GetStockObject(BLACK_BRUSH).0),
                 ..Default::default()
             };
@@ -138,13 +147,17 @@ impl WindowsOverlay {
                 DeleteObject(brush).ok();
 
                 // Draw text
-                let text = w!("🔒 Send through HSIP instead?");
                 SetTextColor(hdc, COLORREF(0x00FFFFFF));
                 SetBkMode(hdc, TRANSPARENT);
 
+                let text: Vec<u16> = "Send through HSIP instead?"
+                    .encode_utf16()
+                    .chain(std::iter::once(0))
+                    .collect();
+
                 DrawTextW(
                     hdc,
-                    &mut text.as_wide(),
+                    &text,
                     &mut rect,
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE,
                 );
@@ -229,7 +242,7 @@ impl InterceptOverlay for WindowsOverlay {
 
         // Create overlay window
         let hwnd = self.create_overlay_window(&content)?;
-        *self.hwnd.lock().unwrap() = Some(hwnd);
+        *self.hwnd.lock().unwrap() = Some(SendableHwnd(hwnd));
 
         // Wait for user choice
         let choice = self.wait_for_choice(hwnd).await?;
@@ -241,7 +254,7 @@ impl InterceptOverlay for WindowsOverlay {
     }
 
     async fn hide(&mut self) -> Result<()> {
-        if let Some(hwnd) = self.hwnd.lock().unwrap().take() {
+        if let Some(SendableHwnd(hwnd)) = self.hwnd.lock().unwrap().take() {
             unsafe {
                 DestroyWindow(hwnd)
                     .map_err(|e| InterceptError::Overlay(format!("DestroyWindow failed: {}", e)))?;

@@ -1,6 +1,6 @@
 //! Event types and monitoring abstractions.
 
-use crate::{Result, InterceptError};
+use crate::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
