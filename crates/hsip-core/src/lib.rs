@@ -4,7 +4,6 @@
 pub mod aad;
 pub mod consent;
 pub mod error;
-pub mod handshake;
 pub mod hello;
 pub mod liveness;
 pub mod nonce;
