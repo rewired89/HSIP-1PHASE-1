@@ -1,11 +1,9 @@
-# Gitleaks false positive ignore file
-# These are NOT actual secrets - verified by security audit
+# Gitleaks ignore file - Only true false positives
 
 # False positive: "ChaCha20-Poly1305" is a cipher name in documentation, not a secret
 24d90bb2624493aabe829e8db7ff0b12c7992c3d:SECURITY.md:generic-api-key:43
 
-# Historical: token.txt contained a test JWT token, file was deleted
+# Historical: token.txt contained a test JWT token (file deleted, remains in git history)
+# This was a LOCAL development token with no external access - verified safe
+# To fully remove: use BFG Repo-Cleaner or git filter-repo (requires force push)
 134ed839b5324f5ef1b794138d92bef653c2f000:token.txt:jwt:1
-
-# Intentional: Demo script uses obvious fake key (00112233...) for local testing only
-134ed839b5324f5ef1b794138d92bef653c2f000:installer/run-demo.cmd:generic-api-key:3
