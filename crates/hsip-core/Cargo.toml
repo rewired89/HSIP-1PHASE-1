@@ -7,7 +7,7 @@ rust-version = "1.87"
 
 [features]
 default = []
-pqc = ["pqcrypto-kyber", "pqcrypto-dilithium", "pqcrypto-traits"]
+pqc = ["pqcrypto-mlkem", "pqcrypto-mldsa", "pqcrypto-traits"]
 
 [dependencies]
 ed25519-dalek = { version = "2", features = ["rand_core"] }
@@ -26,8 +26,8 @@ sha2 = "0.10"
 zeroize = "1.8"
 
 # Post-quantum cryptography (optional, enabled with 'pqc' feature)
-# Uses pqcrypto ecosystem which provides stable NIST PQC implementations
-pqcrypto-kyber = { version = "0.8", optional = true }
-pqcrypto-dilithium = { version = "0.5", optional = true }
+# Uses NIST-standardized ML-KEM and ML-DSA (formerly Kyber and Dilithium)
+pqcrypto-mlkem = { version = "0.1", optional = true }
+pqcrypto-mldsa = { version = "0.1", optional = true }
 pqcrypto-traits = { version = "0.3", optional = true }
 

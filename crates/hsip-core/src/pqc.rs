@@ -1,16 +1,16 @@
 //! Post-Quantum Cryptography (PQC) module for HSIP.
 //!
 //! This module implements hybrid classical + post-quantum cryptography:
-//! - Hybrid KEM: X25519 + Kyber-768 (NIST Round 3 winner, now ML-KEM)
-//! - Hybrid Signatures: Ed25519 + Dilithium3 (NIST Round 3 winner, now ML-DSA)
+//! - Hybrid KEM: X25519 + ML-KEM-768 (NIST FIPS 203 standard)
+//! - Hybrid Signatures: Ed25519 + ML-DSA-65 (NIST FIPS 204 standard)
 //!
 //! The hybrid approach provides "defense in depth" - security against both
 //! classical and quantum adversaries. If either algorithm is broken, the
 //! combined construction remains secure.
 //!
 //! # Security Levels
-//! - Kyber-768: NIST Level 3 (equivalent to AES-192)
-//! - Dilithium3: NIST Level 3 (equivalent to AES-192)
+//! - ML-KEM-768: NIST Level 3 (equivalent to AES-192)
+//! - ML-DSA-65: NIST Level 3 (equivalent to AES-192)
 //!
 //! # Wire Format
 //! Hybrid ciphertexts and signatures include both classical and PQ components,
@@ -22,12 +22,12 @@ use hkdf::Hkdf;
 use sha2::Sha256;
 use zeroize::Zeroize;
 
-// Kyber (ML-KEM) imports
-use pqcrypto_kyber::kyber768;
+// ML-KEM (formerly Kyber) imports - NIST FIPS 203
+use pqcrypto_mlkem::mlkem768;
 use pqcrypto_traits::kem::{Ciphertext as KemCiphertext, PublicKey as KemPublicKey, SharedSecret as KemSharedSecret};
 
-// Dilithium (ML-DSA) imports
-use pqcrypto_dilithium::dilithium3;
+// ML-DSA (formerly Dilithium) imports - NIST FIPS 204
+use pqcrypto_mldsa::mldsa65;
 use pqcrypto_traits::sign::{DetachedSignature, PublicKey as SignPublicKey};
 
 // Classical crypto
@@ -39,21 +39,21 @@ use x25519_dalek::{EphemeralSecret, PublicKey as X25519PublicKey};
 pub const HYBRID_KEM_LABEL: &[u8] = b"HSIP-Hybrid-KEM-v1";
 pub const HYBRID_SIG_LABEL: &[u8] = b"HSIP-Hybrid-Sig-v1";
 
-/// Kyber-768 public key size (1184 bytes)
-pub const KYBER768_PK_SIZE: usize = 1184;
-/// Kyber-768 secret key size (2400 bytes)
-pub const KYBER768_SK_SIZE: usize = 2400;
-/// Kyber-768 ciphertext size (1088 bytes)
-pub const KYBER768_CT_SIZE: usize = 1088;
-/// Kyber-768 shared secret size (32 bytes)
-pub const KYBER768_SS_SIZE: usize = 32;
+/// ML-KEM-768 public key size (1184 bytes)
+pub const MLKEM768_PK_SIZE: usize = 1184;
+/// ML-KEM-768 secret key size (2400 bytes)
+pub const MLKEM768_SK_SIZE: usize = 2400;
+/// ML-KEM-768 ciphertext size (1088 bytes)
+pub const MLKEM768_CT_SIZE: usize = 1088;
+/// ML-KEM-768 shared secret size (32 bytes)
+pub const MLKEM768_SS_SIZE: usize = 32;
 
-/// Dilithium3 public key size (1952 bytes)
-pub const DILITHIUM3_PK_SIZE: usize = 1952;
-/// Dilithium3 secret key size (4000 bytes)
-pub const DILITHIUM3_SK_SIZE: usize = 4000;
-/// Dilithium3 signature size (3309 bytes - pqcrypto format)
-pub const DILITHIUM3_SIG_SIZE: usize = 3309;
+/// ML-DSA-65 public key size (1952 bytes)
+pub const MLDSA65_PK_SIZE: usize = 1952;
+/// ML-DSA-65 secret key size (4032 bytes)
+pub const MLDSA65_SK_SIZE: usize = 4032;
+/// ML-DSA-65 signature size (3309 bytes)
+pub const MLDSA65_SIG_SIZE: usize = 3309;
 
 /// Errors from PQC operations
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,9 +110,9 @@ pub struct HybridKemKeypair {
     /// X25519 public key
     x25519_public: X25519PublicKey,
     /// Kyber-768 public key
-    kyber_pk: kyber768::PublicKey,
+    kyber_pk: mlkem768::PublicKey,
     /// Kyber-768 secret key
-    kyber_sk: kyber768::SecretKey,
+    kyber_sk: mlkem768::SecretKey,
 }
 
 impl HybridKemKeypair {
@@ -124,7 +124,7 @@ impl HybridKemKeypair {
         let x25519_public = X25519PublicKey::from(&x25519_secret);
 
         // Generate Kyber-768 keypair
-        let (kyber_pk, kyber_sk) = kyber768::keypair();
+        let (kyber_pk, kyber_sk) = mlkem768::keypair();
 
         Self {
             x25519_secret: Some(x25519_secret),
@@ -150,7 +150,7 @@ impl HybridKemKeypair {
     /// Total size: 32 + 1184 = 1216 bytes
     #[must_use]
     pub fn public_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(32 + KYBER768_PK_SIZE);
+        let mut out = Vec::with_capacity(32 + MLKEM768_PK_SIZE);
         out.extend_from_slice(&self.x25519_public_bytes());
         out.extend_from_slice(&self.kyber_pk_bytes());
         out
@@ -174,7 +174,7 @@ pub struct HybridCiphertext {
 
 impl HybridCiphertext {
     /// Total size of hybrid ciphertext: 32 + 1088 = 1120 bytes
-    pub const SIZE: usize = 32 + KYBER768_CT_SIZE;
+    pub const SIZE: usize = 32 + MLKEM768_CT_SIZE;
 
     /// Serialize to bytes
     #[must_use]
@@ -197,7 +197,7 @@ impl HybridCiphertext {
         let mut x25519_ct = [0u8; 32];
         x25519_ct.copy_from_slice(&bytes[..32]);
 
-        let kyber_ct = bytes[32..32 + KYBER768_CT_SIZE].to_vec();
+        let kyber_ct = bytes[32..32 + MLKEM768_CT_SIZE].to_vec();
 
         Ok(Self { x25519_ct, kyber_ct })
     }
@@ -215,7 +215,7 @@ pub fn hybrid_encapsulate(
     peer_kyber_pk: &[u8],
 ) -> Result<(HybridCiphertext, [u8; 32]), PqcError> {
     // Validate Kyber public key
-    if peer_kyber_pk.len() != KYBER768_PK_SIZE {
+    if peer_kyber_pk.len() != MLKEM768_PK_SIZE {
         return Err(PqcError::InvalidKey);
     }
 
@@ -226,9 +226,9 @@ pub fn hybrid_encapsulate(
     let x_shared = x_eph.diffie_hellman(&peer_x_pub);
 
     // Kyber encapsulation
-    let kyber_pk = kyber768::PublicKey::from_bytes(peer_kyber_pk)
+    let kyber_pk = mlkem768::PublicKey::from_bytes(peer_kyber_pk)
         .map_err(|_| PqcError::InvalidKey)?;
-    let (kyber_ss, kyber_ct) = kyber768::encapsulate(&kyber_pk);
+    let (kyber_ss, kyber_ct) = mlkem768::encapsulate(&kyber_pk);
 
     // Combine shared secrets via HKDF
     let combined_secret = combine_shared_secrets(
@@ -259,9 +259,9 @@ pub fn hybrid_decapsulate(
     let x_shared = x_secret.diffie_hellman(&peer_x_pub);
 
     // Kyber decapsulation
-    let kyber_ct = kyber768::Ciphertext::from_bytes(&ciphertext.kyber_ct)
+    let kyber_ct = mlkem768::Ciphertext::from_bytes(&ciphertext.kyber_ct)
         .map_err(|_| PqcError::InvalidCiphertext)?;
-    let kyber_ss = kyber768::decapsulate(&kyber_ct, &our_keypair.kyber_sk);
+    let kyber_ss = mlkem768::decapsulate(&kyber_ct, &our_keypair.kyber_sk);
 
     // Combine shared secrets
     combine_shared_secrets(x_shared.as_bytes(), kyber_ss.as_bytes())
@@ -301,7 +301,7 @@ pub struct HybridSignature {
 
 impl HybridSignature {
     /// Total size: 64 + 3293 = 3357 bytes
-    pub const SIZE: usize = 64 + DILITHIUM3_SIG_SIZE;
+    pub const SIZE: usize = 64 + MLDSA65_SIG_SIZE;
 
     /// Serialize to bytes
     #[must_use]
@@ -320,7 +320,7 @@ impl HybridSignature {
 
         let mut ed25519_sig = [0u8; 64];
         ed25519_sig.copy_from_slice(&bytes[..64]);
-        let dilithium_sig = bytes[64..64 + DILITHIUM3_SIG_SIZE].to_vec();
+        let dilithium_sig = bytes[64..64 + MLDSA65_SIG_SIZE].to_vec();
 
         Ok(Self { ed25519_sig, dilithium_sig })
     }
@@ -333,9 +333,9 @@ pub struct HybridSigningKeypair {
     /// Ed25519 verifying key
     pub ed25519_vk: VerifyingKey,
     /// Dilithium3 public key
-    pub dilithium_pk: dilithium3::PublicKey,
+    pub dilithium_pk: mldsa65::PublicKey,
     /// Dilithium3 secret key
-    pub dilithium_sk: dilithium3::SecretKey,
+    pub dilithium_sk: mldsa65::SecretKey,
 }
 
 impl HybridSigningKeypair {
@@ -347,7 +347,7 @@ impl HybridSigningKeypair {
         let ed25519_vk = ed25519_sk.verifying_key();
 
         // Generate Dilithium3 keypair
-        let (dilithium_pk, dilithium_sk) = dilithium3::keypair();
+        let (dilithium_pk, dilithium_sk) = mldsa65::keypair();
 
         Self {
             ed25519_sk,
@@ -373,7 +373,7 @@ impl HybridSigningKeypair {
     /// Total size: 32 + 1952 = 1984 bytes
     #[must_use]
     pub fn public_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(32 + DILITHIUM3_PK_SIZE);
+        let mut out = Vec::with_capacity(32 + MLDSA65_PK_SIZE);
         out.extend_from_slice(&self.ed25519_vk_bytes());
         out.extend_from_slice(&self.dilithium_pk_bytes());
         out
@@ -385,7 +385,7 @@ impl HybridSigningKeypair {
         let ed_sig = self.ed25519_sk.sign(message);
 
         // Dilithium3 signature
-        let dilithium_sig = dilithium3::detached_sign(message, &self.dilithium_sk);
+        let dilithium_sig = mldsa65::detached_sign(message, &self.dilithium_sk);
 
         HybridSignature {
             ed25519_sig: ed_sig.to_bytes(),
@@ -400,12 +400,12 @@ pub struct HybridVerifyingKey {
     /// Ed25519 verifying key
     pub ed25519_vk: VerifyingKey,
     /// Dilithium3 public key
-    pub dilithium_pk: dilithium3::PublicKey,
+    pub dilithium_pk: mldsa65::PublicKey,
 }
 
 impl HybridVerifyingKey {
     /// Total public key size: 32 + 1952 = 1984 bytes
-    pub const SIZE: usize = 32 + DILITHIUM3_PK_SIZE;
+    pub const SIZE: usize = 32 + MLDSA65_PK_SIZE;
 
     /// Parse from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, PqcError> {
@@ -417,7 +417,7 @@ impl HybridVerifyingKey {
             bytes[..32].try_into().map_err(|_| PqcError::InvalidKey)?
         ).map_err(|_| PqcError::InvalidKey)?;
 
-        let dilithium_pk = dilithium3::PublicKey::from_bytes(&bytes[32..32 + DILITHIUM3_PK_SIZE])
+        let dilithium_pk = mldsa65::PublicKey::from_bytes(&bytes[32..32 + MLDSA65_PK_SIZE])
             .map_err(|_| PqcError::InvalidKey)?;
 
         Ok(Self { ed25519_vk, dilithium_pk })
@@ -445,9 +445,9 @@ impl HybridVerifyingKey {
             .map_err(|_| PqcError::VerifyFailed)?;
 
         // Verify Dilithium3 signature
-        let dilithium_sig = dilithium3::DetachedSignature::from_bytes(&signature.dilithium_sig)
+        let dilithium_sig = mldsa65::DetachedSignature::from_bytes(&signature.dilithium_sig)
             .map_err(|_| PqcError::InvalidSignature)?;
-        dilithium3::verify_detached_signature(&dilithium_sig, message, &self.dilithium_pk)
+        mldsa65::verify_detached_signature(&dilithium_sig, message, &self.dilithium_pk)
             .map_err(|_| PqcError::VerifyFailed)?;
 
         Ok(())
@@ -462,22 +462,22 @@ impl HybridVerifyingKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PqcCapabilities {
     /// Supports Kyber-768 hybrid key exchange
-    pub kyber768: bool,
+    pub mlkem768: bool,
     /// Supports Dilithium3 hybrid signatures
-    pub dilithium3: bool,
+    pub mldsa65: bool,
 }
 
 impl PqcCapabilities {
     /// No PQC support (classical only)
     pub const NONE: Self = Self {
-        kyber768: false,
-        dilithium3: false,
+        mlkem768: false,
+        mldsa65: false,
     };
 
     /// Full PQC support (all algorithms)
     pub const FULL: Self = Self {
-        kyber768: true,
-        dilithium3: true,
+        mlkem768: true,
+        mldsa65: true,
     };
 
     /// Encode to capability byte
@@ -486,10 +486,10 @@ impl PqcCapabilities {
     #[must_use]
     pub const fn to_byte(self) -> u8 {
         let mut b = 0u8;
-        if self.kyber768 {
+        if self.mlkem768 {
             b |= 0x01;
         }
-        if self.dilithium3 {
+        if self.mldsa65 {
             b |= 0x02;
         }
         b
@@ -499,23 +499,23 @@ impl PqcCapabilities {
     #[must_use]
     pub const fn from_byte(b: u8) -> Self {
         Self {
-            kyber768: (b & 0x01) != 0,
-            dilithium3: (b & 0x02) != 0,
+            mlkem768: (b & 0x01) != 0,
+            mldsa65: (b & 0x02) != 0,
         }
     }
 
     /// Check if any PQC algorithm is supported
     #[must_use]
     pub const fn any(self) -> bool {
-        self.kyber768 || self.dilithium3
+        self.mlkem768 || self.mldsa65
     }
 
     /// Negotiate common capabilities between two peers
     #[must_use]
     pub const fn intersect(self, other: Self) -> Self {
         Self {
-            kyber768: self.kyber768 && other.kyber768,
-            dilithium3: self.dilithium3 && other.dilithium3,
+            mlkem768: self.mlkem768 && other.mlkem768,
+            mldsa65: self.mldsa65 && other.mldsa65,
         }
     }
 }
@@ -627,13 +627,13 @@ mod tests {
     fn capability_negotiation() {
         let alice = PqcCapabilities::FULL;
         let bob = PqcCapabilities {
-            kyber768: true,
-            dilithium3: false,
+            mlkem768: true,
+            mldsa65: false,
         };
 
         let common = alice.intersect(bob);
-        assert!(common.kyber768);
-        assert!(!common.dilithium3);
+        assert!(common.mlkem768);
+        assert!(!common.mldsa65);
 
         // Test byte encoding
         assert_eq!(PqcCapabilities::FULL.to_byte(), 0x03);

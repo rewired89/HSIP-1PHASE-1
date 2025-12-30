@@ -22,7 +22,6 @@
 use blake3::Hasher;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use sharks::{Share, Sharks};
 use std::collections::HashMap;
 use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -107,20 +106,18 @@ pub struct IdentityShard {
 }
 
 impl IdentityShard {
-    /// Create from a sharks Share
-    fn from_share(
-        share: &Share,
+    /// Create from vsss-rs Share data
+    fn from_share_data(
+        share_data: Vec<u8>,
         index: u8,
         identity_fingerprint: [u8; 8],
         storage_type: ShardStorageType,
         label: String,
         expires_at: Option<DateTime<Utc>>,
     ) -> Self {
-        let shard_data: Vec<u8> = share.into();
-
         // Generate shard ID
         let mut hasher = Hasher::new();
-        hasher.update(&shard_data);
+        hasher.update(&share_data);
         hasher.update(&identity_fingerprint);
         let hash = hasher.finalize();
         let mut shard_id = [0u8; 32];
@@ -129,7 +126,7 @@ impl IdentityShard {
         // Generate verification hash
         let mut verify_hasher = Hasher::new();
         verify_hasher.update(&shard_id);
-        verify_hasher.update(&shard_data);
+        verify_hasher.update(&share_data);
         let verify_hash = verify_hasher.finalize();
         let mut verification_hash = [0u8; 32];
         verification_hash.copy_from_slice(verify_hash.as_bytes());
@@ -147,7 +144,7 @@ impl IdentityShard {
 
         Self {
             metadata,
-            shard_data,
+            shard_data: share_data,
             passphrase_salt: None,
         }
     }
@@ -171,10 +168,9 @@ impl IdentityShard {
         }
     }
 
-    /// Convert back to a sharks Share
-    fn to_share(&self) -> Result<Share, RegenerativeError> {
-        Share::try_from(self.shard_data.as_slice())
-            .map_err(|_| RegenerativeError::InvalidShardFormat)
+    /// Get the raw shard data bytes
+    pub fn shard_bytes(&self) -> &[u8] {
+        &self.shard_data
     }
 
     /// Get the shard index
@@ -224,20 +220,10 @@ impl ShardingConfig {
 }
 
 /// Identity regeneration system
+#[derive(Debug)]
 pub struct IdentityRegenerator {
     /// Configuration
     config: ShardingConfig,
-    /// Sharks instance for the sharing scheme
-    sharks: Sharks,
-}
-
-impl std::fmt::Debug for IdentityRegenerator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IdentityRegenerator")
-            .field("config", &self.config)
-            .field("sharks", &format!("Sharks(threshold={})", self.config.threshold))
-            .finish()
-    }
 }
 
 impl IdentityRegenerator {
@@ -248,10 +234,7 @@ impl IdentityRegenerator {
 
     /// Create with custom config
     pub fn with_config(config: ShardingConfig) -> Self {
-        Self {
-            sharks: Sharks(config.threshold),
-            config,
-        }
+        Self { config }
     }
 
     /// Shard an identity secret into recoverable pieces
@@ -275,13 +258,21 @@ impl IdentityRegenerator {
         // Calculate expiration
         let expires_at = self.config.expiration.map(|d| Utc::now() + d);
 
-        // Generate shares using Shamir Secret Sharing
-        let dealer = self.sharks.dealer(secret);
-        let shares: Vec<Share> = dealer.take(self.config.total_shards as usize).collect();
+        // Generate shares using ssss (Shamir Secret Sharing)
+        // This is secure and does not have the polynomial bias vulnerability
+        let ssss_config = ssss::SsssConfig::builder()
+            .num_shares(self.config.total_shards)
+            .threshold(self.config.threshold)
+            .max_secret_size(MAX_SECRET_SIZE)
+            .build();
+
+        let shares = ssss::gen_shares(&ssss_config, secret)
+            .map_err(|e| RegenerativeError::RecoveryFailed(format!("Split failed: {:?}", e)))?;
 
         // Convert to IdentityShards with metadata
+        // ssss returns Base62-encoded strings, we store them as UTF-8 bytes
         let shards: Vec<IdentityShard> = shares
-            .iter()
+            .into_iter()
             .enumerate()
             .map(|(i, share)| {
                 let (storage_type, label) = self.config.storage_plan
@@ -289,8 +280,8 @@ impl IdentityRegenerator {
                     .cloned()
                     .unwrap_or((ShardStorageType::LocalDevice, format!("Shard {}", i + 1)));
 
-                IdentityShard::from_share(
-                    share,
+                IdentityShard::from_share_data(
+                    share.into_bytes(),
                     (i + 1) as u8,
                     fingerprint,
                     storage_type,
@@ -326,12 +317,17 @@ impl IdentityRegenerator {
             }
         }
 
-        // Convert to sharks Shares
-        let shares: Result<Vec<Share>, _> = shards.iter().map(|s| s.to_share()).collect();
-        let shares = shares?;
+        // Convert shard data back to strings (ssss uses Base62-encoded strings)
+        let share_strings: Vec<String> = shards
+            .iter()
+            .map(|s| {
+                String::from_utf8(s.shard_bytes().to_vec())
+                    .map_err(|_| RegenerativeError::InvalidShardFormat)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
-        // Recover the secret
-        self.sharks.recover(&shares)
+        // Recover the secret using ssss
+        ssss::unlock(&share_strings)
             .map_err(|e| RegenerativeError::RecoveryFailed(format!("{:?}", e)))
     }
 
