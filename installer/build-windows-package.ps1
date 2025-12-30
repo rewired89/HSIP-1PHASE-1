@@ -318,7 +318,8 @@ Write-Host "  ✅ Build Complete!" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Package created: $zipName" -ForegroundColor Cyan
-Write-Host "Size: $((Get-Item $zipName).Length / 1MB | ForEach-Object {[math]::Round(`$_, 2)}) MB" -ForegroundColor Cyan
+$sizeMB = [math]::Round((Get-Item $zipName).Length / 1MB, 2)
+Write-Host "Size: $sizeMB MB" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "1. Extract $zipName on target Windows machine" -ForegroundColor White
