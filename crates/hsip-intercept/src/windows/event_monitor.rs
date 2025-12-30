@@ -407,12 +407,13 @@ mod tests {
 
     #[test]
     fn test_messaging_window_detection() {
-        let config = InterceptConfig::default();
+        let mut config = InterceptConfig::default();
+        config.enabled = true; // Enable for testing
         let (tx, _rx) = mpsc::channel(10);
 
         let monitor = WindowsEventMonitor {
             event_tx: tx,
-            config: config.clone(),
+            config,
             running: Arc::new(AtomicBool::new(false)),
             automation: SendSyncWrapper::none(),
         };
