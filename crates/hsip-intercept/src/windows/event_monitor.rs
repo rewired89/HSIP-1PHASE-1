@@ -65,8 +65,9 @@ impl WindowsEventMonitor {
     /// Initialize UI Automation COM interface.
     fn initialize_automation(&mut self) -> Result<()> {
         unsafe {
-            // Initialize COM
+            // Initialize COM - HRESULT.ok() converts to Result
             CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+                .ok()
                 .map_err(|e| InterceptError::EventMonitor(format!("COM init failed: {}", e)))?;
 
             // Create IUIAutomation instance
