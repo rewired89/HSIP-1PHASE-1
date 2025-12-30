@@ -14,10 +14,11 @@ Write-Host " HSIP Windows Installer Package Builder" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Get the repository root
-$repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-if (-not $repoRoot) {
-    $repoRoot = Split-Path $PSScriptRoot -Parent
+# Get the repository root (one level up from installer/)
+$repoRoot = Split-Path $PSScriptRoot -Parent
+if (-not (Test-Path (Join-Path $repoRoot "Cargo.toml"))) {
+    Write-Host "ERROR: Cannot find Cargo.toml. Run this script from the installer/ directory." -ForegroundColor Red
+    exit 1
 }
 
 Write-Host "[1/7] Repository root: $repoRoot" -ForegroundColor Yellow
@@ -45,9 +46,9 @@ if (-not (Test-Path "$buildDir\hsip-cli.exe")) {
 # Build the tray icon executable
 Write-Host "[4/7] Building HSIP Tray Icon (hsip-tray.exe)..." -ForegroundColor Yellow
 if ($Release) {
-    cargo build --release --bin hsip-tray
+    cargo build --release --bin hsip-tray --features tray
 } else {
-    cargo build --bin hsip-tray
+    cargo build --bin hsip-tray --features tray
 }
 
 if (-not (Test-Path "$buildDir\hsip-tray.exe")) {
