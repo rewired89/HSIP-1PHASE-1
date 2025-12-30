@@ -112,36 +112,3 @@ For commercial inquiries: nyxsystemsllc@gmail.com
 **Contact**
 GitHub Issues: https://github.com/rewired89/HSIP/issues
 Email: nyxsystemsllc@gmail.com
-
-<<<<<<< HEAD
-**Audits:**
-- Mozilla security audit: In progress
-- Additional audits planned
-
-**Cryptography:**
-- Ed25519 (identity/signatures)
-- X25519 (key exchange)
-- ChaCha20-Poly1305 (encryption)
-
-**Report vulnerabilities:** nyxsystemsllc@gmail.com
-
----
-
-## License
-
-**HSIP Community License** (Non-Commercial Use Only)
-
-- ✅ **FREE for:** Personal, educational, research, and open-source projects
-- ❌ **Requires Enterprise License for:** Commercial use, business operations, paid services
-
-See [LICENSE](./LICENSE) file for full terms.
-For commercial licensing: nyxsystemsllc@gmail.com
-
----
-
-## Contact
-
-- GitHub: [Issues](https://github.com/rewired89/HSIP/issues)
-- Email: nyxsystemsllc@gmail.com
-=======
->>>>>>> 731c98a551750235e27c2d5e85a0b5798cfedc39
