@@ -1627,6 +1627,20 @@ fn run_demo_site() {
                     resp.add_header(
                         Header::from_bytes(b"Content-Type", b"text/html; charset=utf-8").unwrap(),
                     );
+                    // Content Security Policy to prevent XSS attacks (fixes OWASP ZAP finding)
+                    resp.add_header(
+                        Header::from_bytes(
+                            b"Content-Security-Policy",
+                            b"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'",
+                        ).unwrap(),
+                    );
+                    // Additional security headers
+                    resp.add_header(
+                        Header::from_bytes(b"X-Content-Type-Options", b"nosniff").unwrap(),
+                    );
+                    resp.add_header(
+                        Header::from_bytes(b"X-Frame-Options", b"DENY").unwrap(),
+                    );
                     let _ = req.respond(resp);
                 } else {
                     let resp = Response::from_string("Not Found").with_status_code(StatusCode(404));
