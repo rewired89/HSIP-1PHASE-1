@@ -16,7 +16,11 @@ members = [
 
 
 exclude = [
-    "crates/hsip-session/fuzz"
+    "crates/hsip-session/fuzz",
+    # hsip-verify requires z3-sys which needs Z3 to be built from source
+    # On Windows, this can fail due to heap space issues
+    # Build separately with: cargo build -p hsip-verify
+    "crates/hsip-verify"
 ]
 resolver = "2"
 

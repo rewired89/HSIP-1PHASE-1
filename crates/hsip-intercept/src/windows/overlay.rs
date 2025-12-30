@@ -150,14 +150,14 @@ impl WindowsOverlay {
                 SetTextColor(hdc, COLORREF(0x00FFFFFF));
                 SetBkMode(hdc, TRANSPARENT);
 
-                let text: Vec<u16> = "Send through HSIP instead?"
+                let mut text: Vec<u16> = "Send through HSIP instead?"
                     .encode_utf16()
                     .chain(std::iter::once(0))
                     .collect();
 
                 DrawTextW(
                     hdc,
-                    &text,
+                    &mut text[..],
                     &mut rect,
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE,
                 );
@@ -185,11 +185,12 @@ impl WindowsOverlay {
     }
 
     /// Wait for user interaction with the overlay.
-    async fn wait_for_choice(&self, hwnd: HWND) -> Result<UserChoice> {
+    /// Uses the stored hwnd from self.hwnd to avoid Send issues with HWND across await points.
+    async fn wait_for_choice(&self) -> Result<UserChoice> {
         // Run message loop in background thread
         let choice_arc = Arc::clone(&self.choice);
 
-        let handle = std::thread::spawn(move || unsafe {
+        let _handle = std::thread::spawn(move || unsafe {
             let mut msg = MSG::default();
 
             while GetMessageW(&mut msg, None, 0, 0).into() {
@@ -222,8 +223,11 @@ impl WindowsOverlay {
             if start.elapsed() > timeout {
                 // Timeout - auto-dismiss as "Continue"
                 debug!("Overlay timeout, auto-dismissing");
-                unsafe {
-                    PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)).ok();
+                // Get hwnd from Arc<Mutex> to avoid Send issues
+                if let Some(SendableHwnd(hwnd)) = self.hwnd.lock().unwrap().as_ref().cloned() {
+                    unsafe {
+                        PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)).ok();
+                    }
                 }
                 return Ok(UserChoice::Continue);
             }
@@ -240,12 +244,15 @@ impl InterceptOverlay for WindowsOverlay {
 
         let content = OverlayContent::from_event(event, recipient);
 
-        // Create overlay window
-        let hwnd = self.create_overlay_window(&content)?;
-        *self.hwnd.lock().unwrap() = Some(SendableHwnd(hwnd));
+        // Create overlay window and store it immediately
+        // Scoped block ensures hwnd (non-Send) doesn't exist across await
+        {
+            let hwnd = self.create_overlay_window(&content)?;
+            *self.hwnd.lock().unwrap() = Some(SendableHwnd(hwnd));
+        }
 
-        // Wait for user choice
-        let choice = self.wait_for_choice(hwnd).await?;
+        // Wait for user choice (uses stored hwnd to avoid Send issues)
+        let choice = self.wait_for_choice().await?;
 
         // Cleanup
         self.hide().await?;
@@ -283,10 +290,15 @@ mod tests {
     #[test]
     fn test_position_calculation() {
         let config = InterceptConfig::default();
-        let overlay = WindowsOverlay::new(&config).unwrap();
+        // Create WindowsOverlay directly to access internal methods
+        let overlay = WindowsOverlay {
+            config,
+            hwnd: Arc::new(Mutex::new(None)),
+            choice: Arc::new(Mutex::new(None)),
+        };
 
         // Just verify it doesn't crash
-        let (x, y, w, h) = overlay.calculate_overlay_position();
+        let (_x, _y, w, h) = overlay.calculate_overlay_position();
         assert!(w > 0);
         assert!(h > 0);
     }
