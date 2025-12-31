@@ -40,9 +40,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; ============================
 
 [Files]
-Source: "..\target\release\hsip-cli.exe";   DestDir: "{app}"; Flags: ignoreversion
-Source: "..\target\release\hsip-tray.exe";  DestDir: "{app}"; Flags: ignoreversion
-Source: "README-USER.txt";                  DestDir: "{app}"; Flags: ignoreversion
+Source: "..\target\release\hsip-cli.exe";     DestDir: "{app}"; Flags: ignoreversion
+Source: "..\target\release\hsip-tray.exe";    DestDir: "{app}"; Flags: ignoreversion
+Source: "..\target\release\hsip-gateway.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "README-USER.txt";                    DestDir: "{app}"; Flags: ignoreversion
 
 ; ============================
 ; Start Menu shortcuts

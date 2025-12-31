@@ -21,15 +21,15 @@ if (-not (Test-Path (Join-Path $repoRoot "Cargo.toml"))) {
     exit 1
 }
 
-Write-Host "[1/7] Repository root: $repoRoot" -ForegroundColor Yellow
+Write-Host "[1/8] Repository root: $repoRoot" -ForegroundColor Yellow
 Set-Location $repoRoot
 
 # Clean previous build artifacts
-Write-Host "[2/7] Cleaning previous build artifacts..." -ForegroundColor Yellow
+Write-Host "[2/8] Cleaning previous build artifacts..." -ForegroundColor Yellow
 cargo clean
 
 # Build the main CLI executable
-Write-Host "[3/7] Building HSIP CLI (hsip-cli.exe)..." -ForegroundColor Yellow
+Write-Host "[3/8] Building HSIP CLI (hsip-cli.exe)..." -ForegroundColor Yellow
 if ($Release) {
     cargo build --release --bin hsip-cli
     $buildDir = "target\release"
@@ -44,7 +44,7 @@ if (-not (Test-Path "$buildDir\hsip-cli.exe")) {
 }
 
 # Build the tray icon executable
-Write-Host "[4/7] Building HSIP Tray Icon (hsip-tray.exe)..." -ForegroundColor Yellow
+Write-Host "[4/8] Building HSIP Tray Icon (hsip-tray.exe)..." -ForegroundColor Yellow
 if ($Release) {
     cargo build --release --bin hsip-tray --features tray
 } else {
@@ -56,17 +56,31 @@ if (-not (Test-Path "$buildDir\hsip-tray.exe")) {
     exit 1
 }
 
+# Build the gateway executable
+Write-Host "[5/8] Building HSIP Gateway (hsip-gateway.exe)..." -ForegroundColor Yellow
+if ($Release) {
+    cargo build --release -p hsip-gateway
+} else {
+    cargo build -p hsip-gateway
+}
+
+if (-not (Test-Path "$buildDir\hsip-gateway.exe")) {
+    Write-Host "ERROR: Failed to build hsip-gateway.exe" -ForegroundColor Red
+    exit 1
+}
+
 # Create output directory
-Write-Host "[5/7] Creating installer package directory..." -ForegroundColor Yellow
+Write-Host "[6/8] Creating installer package directory..." -ForegroundColor Yellow
 if (Test-Path $OutputDir) {
     Remove-Item $OutputDir -Recurse -Force
 }
 New-Item -ItemType Directory -Path $OutputDir | Out-Null
 
 # Copy installer scripts (only if they exist)
-Write-Host "[6/7] Copying files to installer package..." -ForegroundColor Yellow
+Write-Host "[7/8] Copying files to installer package..." -ForegroundColor Yellow
 Copy-Item "$buildDir\hsip-cli.exe" "$OutputDir\" -Force
 Copy-Item "$buildDir\hsip-tray.exe" "$OutputDir\" -Force
+Copy-Item "$buildDir\hsip-gateway.exe" "$OutputDir\" -Force
 
 $installerScripts = @(
     "register-daemon.ps1",
@@ -318,7 +332,7 @@ pause
 Set-Content -Path "$OutputDir\uninstall.ps1" -Value $uninstaller -Encoding UTF8
 
 # Create ZIP archive
-Write-Host "[7/7] Creating ZIP archive..." -ForegroundColor Yellow
+Write-Host "[8/8] Creating ZIP archive..." -ForegroundColor Yellow
 $zipName = "HSIP-Windows-Installer-$(Get-Date -Format 'yyyy-MM-dd').zip"
 if (Test-Path $zipName) {
     Remove-Item $zipName -Force

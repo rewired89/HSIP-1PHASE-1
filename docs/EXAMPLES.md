@@ -111,25 +111,31 @@ Example 5: Daemon & Monitoring
 
 hsip-cli daemon
 
-5.2 Check Health
+5.2 Check Status
 
-curl http://127.0.0.1:8787/health
-
-Response:
-
-{"status":"ok"}
-
-5.3 Get Statistics
-
-curl http://127.0.0.1:8787/stats
+curl http://127.0.0.1:8787/status
 
 Response:
 
 {
-  "uptime_seconds": 120,
-  "total_sessions": 3,
-  "active_sessions": 1
+  "protected": true,
+  "active_sessions": 1,
+  "cipher": "ChaCha20-Poly1305"
 }
+
+5.3 List Sessions
+
+curl http://127.0.0.1:8787/sessions
+
+Response:
+
+[
+  {
+    "peer": "NYTFBVDZFNSMDASRNINFBTWZJ4",
+    "age_secs": 120,
+    "cipher": "ChaCha20-Poly1305"
+  }
+]
 
 Example 6: Gateway Proxy
 6.1 Start Gateway
@@ -174,15 +180,13 @@ hsip-cli key-import --file backup.json
 Example 8: System Tray (Windows)
 8.1 Start Tray
 
-hsip-cli tray
+hsip-tray
 
 What it does:
 
-    Shows green shield icon in system tray
-    Right-click for menu:
-        "HSIP Status"
-        "Open Dashboard"
-        "Exit"
+    Shows colored square icon in system tray
+    Green = Protected, Yellow = Blocking detected, Red = Offline
+    Right-click to exit
 
 Example 9: Diagnostics
 9.1 Run Full Diagnostic
