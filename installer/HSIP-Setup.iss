@@ -53,14 +53,14 @@ Name: "{group}\HSIP Status"; Filename: "{app}\hsip-tray.exe"; WorkingDir: "{app}
 Name: "{group}\Uninstall HSIP"; Filename: "{uninstallexe}"
 
 ; ============================
-; Auto-start on Windows login (Registry)
+; Auto-start on Windows login (Registry) - using PowerShell hidden
 ; ============================
 
 [Registry]
-; Daemon - runs hidden
+; Daemon - runs truly hidden via PowerShell
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
       ValueType: string; ValueName: "HSIP Daemon"; \
-      ValueData: "cmd /c start /min """" ""{app}\hsip-cli.exe"" daemon"; \
+      ValueData: "powershell -WindowStyle Hidden -Command ""Start-Process -FilePath '{app}\hsip-cli.exe' -ArgumentList 'daemon' -WindowStyle Hidden"""; \
       Flags: uninsdeletevalue
 
 ; Tray icon - shows status
@@ -74,11 +74,10 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
 ; ============================
 
 [Run]
-; Start daemon hidden
-Filename: "cmd"; \
-      Parameters: "/c start /min """" ""{app}\hsip-cli.exe"" daemon"; \
-      WorkingDir: "{app}"; \
-      Flags: nowait runhidden
+; Start daemon truly hidden via PowerShell
+Filename: "powershell"; \
+      Parameters: "-WindowStyle Hidden -Command ""Start-Process -FilePath '{app}\hsip-cli.exe' -ArgumentList 'daemon' -WindowStyle Hidden"""; \
+      Flags: nowait runhidden shellexec
 
 ; Start tray (visible in system tray only)
 Filename: "{app}\hsip-tray.exe"; \
