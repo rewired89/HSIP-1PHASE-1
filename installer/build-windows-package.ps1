@@ -63,17 +63,27 @@ if (Test-Path $OutputDir) {
 }
 New-Item -ItemType Directory -Path $OutputDir | Out-Null
 
-# Copy executables
+# Copy installer scripts (only if they exist)
 Write-Host "[6/7] Copying files to installer package..." -ForegroundColor Yellow
 Copy-Item "$buildDir\hsip-cli.exe" "$OutputDir\" -Force
 Copy-Item "$buildDir\hsip-tray.exe" "$OutputDir\" -Force
 
-# Copy installer scripts
-Copy-Item "installer\register-daemon.ps1" "$OutputDir\" -Force
-Copy-Item "installer\register-tray.ps1" "$OutputDir\" -Force
-Copy-Item "installer\run-daemon.ps1" "$OutputDir\" -Force
-Copy-Item "installer\run-tray.ps1" "$OutputDir\" -Force
-Copy-Item "installer\uninstall.ps1" "$OutputDir\" -Force
+$installerScripts = @(
+    "register-daemon.ps1",
+    "register-tray.ps1",
+    "run-daemon.ps1",
+    "run-tray.ps1",
+    "run-hsip.cmd",
+    "update-hsip.ps1",
+    "README-USER.txt"
+)
+
+foreach ($script in $installerScripts) {
+    $scriptPath = "installer\$script"
+    if (Test-Path $scriptPath) {
+        Copy-Item $scriptPath "$OutputDir\" -Force
+    }
+}
 
 # Copy documentation
 Copy-Item "README.md" "$OutputDir\" -Force -ErrorAction SilentlyContinue
@@ -96,20 +106,25 @@ Extract all files to a permanent location, for example:
 
 **IMPORTANT:** Do NOT run from Downloads or Temp folder!
 
-### 2. Run the Installer (Right-click → Run as Administrator)
+### 2. Register Auto-Start (Run as Administrator)
 Open PowerShell as Administrator and run:
 
 ``````powershell
 cd "C:\Program Files\HSIP"
-.\install.ps1
+.\register-daemon.ps1
+.\register-tray.ps1
+``````
+
+### 3. Start HSIP Now
+``````powershell
+.\run-hsip.cmd
 ``````
 
 This will:
-- ✅ Install HSIP daemon to run on system startup
-- ✅ Install HSIP tray icon to show protection status
-- ✅ Start HSIP immediately
+- Start HSIP daemon (background)
+- Start tray icon (shows protection status)
 
-### 3. Verify Installation
+### 4. Verify Installation
 Look for the system tray icon (bottom-right of screen):
 - 🟢 **GREEN**  = HSIP is running and protecting you
 - 🟡 **YELLOW** = HSIP is blocking threats right now
@@ -138,17 +153,20 @@ Hover over the icon to see detailed status.
 
 ## Uninstallation
 
-To remove HSIP:
+To remove HSIP, run PowerShell as Administrator:
 
 ``````powershell
-cd "C:\Program Files\HSIP"
-.\uninstall.ps1
-``````
+# Stop running processes
+taskkill /IM hsip-cli.exe /F 2>$null
+taskkill /IM hsip-tray.exe /F 2>$null
 
-This will:
-- Remove auto-start tasks
-- Stop the daemon and tray icon
-- You can then delete the folder
+# Remove scheduled tasks
+Unregister-ScheduledTask -TaskName "HSIP Daemon" -Confirm:$false
+Unregister-ScheduledTask -TaskName "HSIP Tray" -Confirm:$false
+
+# Delete the folder
+Remove-Item "C:\Program Files\HSIP" -Recurse -Force
+``````
 
 ## Troubleshooting
 
