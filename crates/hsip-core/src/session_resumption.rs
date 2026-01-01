@@ -174,7 +174,7 @@ pub fn issue_resumption_ticket(
 // Verifies length, AEAD integrity, and temporal validity
 pub fn validate_resumption_ticket(
     key: &TicketEncryptionKey,
-    policy: &TicketPolicy,
+    _policy: &TicketPolicy,
     ticket_data: &[u8],
     current_time_ms: u64,
 ) -> Result<TicketPayload, TicketError> {

@@ -1,6 +1,6 @@
 use ed25519_dalek::VerifyingKey;
 use hsip_core::consent::{
-    build_request, build_response, cid_hex, verify_request, verify_response, ConsentRequest,
+    create_signed_request, create_signed_response, cid_hex, validate_request, validate_response, ConsentRequest,
     ConsentResponse,
 };
 use hsip_core::identity::{generate_keypair, peer_id_from_pubkey};
@@ -29,7 +29,7 @@ fn consent_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build signed request
     let expires = now_ms_u64() + 60_000;
-    let req = build_request(
+    let req = create_signed_request(
         &sk_req,
         &vk_req,
         cid.clone(),
@@ -39,15 +39,15 @@ fn consent_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Verify request
-    verify_request(&req).map_err(|e| format!("verify_request: {e}"))?;
+    validate_request(&req).map_err(|e| format!("validate_request: {e}"))?;
 
     // Build response "allow"
     let ttl = 120_000u64;
-    let resp = build_response(&sk_rsp, &vk_rsp, &req, "allow", ttl, now_ms_u64())
-        .map_err(|e| format!("build_response: {e}"))?;
+    let resp = create_signed_response(&sk_rsp, &vk_rsp, &req, "allow", ttl, now_ms_u64())
+        .map_err(|e| format!("create_signed_response: {e}"))?;
 
     // Verify response against request
-    verify_response(&resp, &req).map_err(|e| format!("verify_response: {e}"))?;
+    validate_response(&resp, &req).map_err(|e| format!("validate_response: {e}"))?;
 
     // serde roundtrip (no .expect())
     let json_req = serde_json::to_string(&req)?;

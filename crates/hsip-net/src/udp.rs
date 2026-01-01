@@ -6,7 +6,7 @@ use std::time::Duration;
 use ed25519_dalek::Signer;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 
-use hsip_core::consent::{verify_request, ConsentRequest, ConsentResponse};
+use hsip_core::consent::{validate_request, ConsentRequest, ConsentResponse};
 use hsip_core::crypto::labels::{aad_for, AAD_LABEL_E2};
 use hsip_core::identity::{peer_id_from_pubkey, vk_to_hex};
 use hsip_core::keystore::load_keypair;
@@ -472,7 +472,7 @@ fn evaluate_consent_request(
     let mut decision = "allow".to_string();
 
     // First check: signature validity
-    if let Err(err) = verify_request(request) {
+    if let Err(err) = validate_request(request) {
         eprintln!("[Policy] invalid signature → deny: {err}");
         guard.on_bad_sig(peer_addr.ip()).ok();
         decision = "deny".into();

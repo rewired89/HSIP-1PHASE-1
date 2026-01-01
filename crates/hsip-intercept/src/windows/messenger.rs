@@ -54,9 +54,11 @@ pub fn extract_recipient_from_window(event: &MessagingEvent) -> Result<String> {
     if let Some(title) = &event.window_title {
         // Gmail: "Compose - user@example.com - Gmail"
         if title.contains("Compose") && title.contains('@') {
-            if let Some(email_start) = title.find(char::is_alphabetic) {
-                if let Some(email_end) = title[email_start..].find(" - ") {
-                    let potential_email = &title[email_start..email_start + email_end];
+            // Find email between "Compose - " and " - Gmail"
+            if let Some(compose_end) = title.find("Compose - ") {
+                let after_compose = &title[compose_end + "Compose - ".len()..];
+                if let Some(gmail_start) = after_compose.find(" - ") {
+                    let potential_email = &after_compose[..gmail_start];
                     if potential_email.contains('@') {
                         return Ok(potential_email.to_string());
                     }

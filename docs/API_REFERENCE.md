@@ -121,11 +121,11 @@ Start background HTTP status API.
 hsip-cli daemon [--status-addr 127.0.0.1:8787]
 
 Default Port: 8787
-hsip-cli tray
+hsip-tray
 
-Start system tray UI (Windows only).
+Start system tray UI (Windows only). This is a separate binary.
 
-hsip-cli tray
+hsip-tray
 
 hsip-cli diag
 
@@ -143,34 +143,29 @@ Tests:
 2. HTTP API (Daemon)
 
 Base URL: http://127.0.0.1:8787 (default)
-GET /health
 
-Check daemon health.
+GET /status
+
+Get daemon status and protection info.
 
 Request:
 
-curl http://127.0.0.1:8787/health
+curl http://127.0.0.1:8787/status
 
 Response:
 
 {
-  "status": "ok"
-}
-
-GET /stats
-
-Get daemon statistics.
-
-Request:
-
-curl http://127.0.0.1:8787/stats
-
-Response:
-
-{
-  "uptime_seconds": 42,
-  "total_sessions": 5,
-  "active_sessions": 2
+  "protected": true,
+  "active_sessions": 1,
+  "egress_peer": "NYTFBVDZFNSMDASRNINFBTWZJ4",
+  "cipher": "ChaCha20-Poly1305",
+  "since": "2024-12-01T12:00:00Z",
+  "bytes_in": 123456,
+  "bytes_out": 234567,
+  "path": ["Local", "HSIP", "Exit-GW-1"],
+  "blocked_connections": 0,
+  "blocked_ips": 0,
+  "blocked_trackers": 5
 }
 
 GET /sessions
@@ -183,14 +178,63 @@ curl http://127.0.0.1:8787/sessions
 
 Response:
 
+[
+  {
+    "peer": "NYTFBVDZFNSMDASRNINFBTWZJ4",
+    "age_secs": 42,
+    "bytes_in": 11111,
+    "bytes_out": 22222,
+    "cipher": "ChaCha20-Poly1305"
+  }
+]
+
+POST /consent/grant
+
+Grant consent token to a peer.
+
+Request:
+
+curl -X POST http://127.0.0.1:8787/consent/grant \
+  -H "Content-Type: application/json" \
+  -d '{"grantee_pubkey_hex": "abc123...", "purpose": "data-share", "expires_ms": 3600000}'
+
+Response:
+
 {
-  "sessions": [
-    {
-      "peer_id": "a1b2c3...",
-      "remote_addr": "192.168.1.100:12345",
-      "established_ms": 1638360000000
-    }
-  ]
+  "token": "cap::abc123.../data-share::3600000"
+}
+
+POST /consent/revoke
+
+Revoke consent for a peer.
+
+Request:
+
+curl -X POST http://127.0.0.1:8787/consent/revoke \
+  -H "Content-Type: application/json" \
+  -d '{"peer_id": "abc123..."}'
+
+Response:
+
+{
+  "ok": true,
+  "revoked_for": "abc123..."
+}
+
+GET /reputation/:peer_id
+
+Get reputation score for a peer.
+
+Request:
+
+curl http://127.0.0.1:8787/reputation/abc123...
+
+Response:
+
+{
+  "peer_id": "abc123...",
+  "score": 100,
+  "last_seen": "2024-12-01T12:00:00Z"
 }
 
 3. Gateway (HTTP Proxy)

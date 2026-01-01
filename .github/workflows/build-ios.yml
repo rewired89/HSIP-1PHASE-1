@@ -1,0 +1,84 @@
+name: Build iOS App
+
+on:
+  push:
+    branches: [ main, develop, 'claude/**' ]
+    paths:
+      - 'crates/hsip-keyboard/**'
+      - 'ios-app/**'
+      - '.github/workflows/build-ios.yml'
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-apple-ios,x86_64-apple-ios
+
+    - name: Install iOS targets
+      run: |
+        rustup target add aarch64-apple-ios
+        rustup target add x86_64-apple-ios
+        rustup target add aarch64-apple-ios-sim
+
+    - name: Build Rust library for iOS
+      working-directory: crates/hsip-keyboard
+      run: |
+        cargo build --release --target aarch64-apple-ios
+        cargo build --release --target x86_64-apple-ios
+        cargo build --release --target aarch64-apple-ios-sim
+
+    - name: Create XCFramework
+      run: |
+        mkdir -p ios-framework
+        xcodebuild -create-xcframework \
+          -library target/aarch64-apple-ios/release/libhsip_keyboard.a \
+          -library target/x86_64-apple-ios/release/libhsip_keyboard.a \
+          -library target/aarch64-apple-ios-sim/release/libhsip_keyboard.a \
+          -output ios-framework/HSIPKeyboard.xcframework
+
+    - name: Setup Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+
+    - name: Build iOS App
+      working-directory: ios-app
+      run: |
+        xcodebuild -scheme "HSIP Keyboard" \
+          -configuration Release \
+          -sdk iphoneos \
+          -archivePath HSIPKeyboard.xcarchive \
+          archive \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO
+
+    - name: Export IPA
+      working-directory: ios-app
+      run: |
+        xcodebuild -exportArchive \
+          -archivePath HSIPKeyboard.xcarchive \
+          -exportPath ./build \
+          -exportOptionsPlist ExportOptions.plist
+
+    - name: Upload IPA
+      uses: actions/upload-artifact@v4
+      with:
+        name: HSIP-Keyboard-iOS
+        path: ios-app/build/*.ipa
+        retention-days: 30
+
+    - name: Upload XCFramework
+      uses: actions/upload-artifact@v4
+      with:
+        name: HSIPKeyboard-Framework
+        path: ios-framework/HSIPKeyboard.xcframework
+        retention-days: 30

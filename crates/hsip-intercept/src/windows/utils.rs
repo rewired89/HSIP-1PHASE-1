@@ -1,7 +1,5 @@
 //! Windows utility functions.
 
-use windows::core::*;
-
 /// Convert Rust string to wide string (UTF-16) for Windows APIs.
 pub fn to_wide_string(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()

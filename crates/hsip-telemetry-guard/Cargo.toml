@@ -1,0 +1,54 @@
+[package]
+name = "hsip-telemetry-guard"
+version = "0.1.0"
+edition = "2021"
+authors = ["HSIP Team"]
+description = "Consent-driven telemetry blocking and policy engine for HSIP"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/HSIP/hsip"
+keywords = ["privacy", "telemetry", "consent", "firewall", "security"]
+categories = ["network-programming", "cryptography"]
+
+[dependencies]
+# Core HSIP
+hsip-common = { path = "../hsip-common" }
+
+# Cryptography
+blake3 = "1"
+rand = "0.8"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async
+tokio = { version = "1", features = ["sync", "time", "net", "io-util", "rt"] }
+
+# Error handling
+thiserror = "2.0"
+
+# Pattern matching
+regex = "1"
+glob = "0.3"
+
+# Concurrency
+parking_lot = "0.12"
+
+# Network
+url = "2"
+
+# Storage (for quarantine and consent persistence)
+rusqlite = { version = "0.31", features = ["bundled"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tempfile = "3"
+
+[features]
+default = []
+persistence = ["rusqlite"]
+proxy = []

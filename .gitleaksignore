@@ -1,0 +1,9 @@
+# Gitleaks ignore file - Only true false positives
+
+# False positive: "ChaCha20-Poly1305" is a cipher name in documentation, not a secret
+1a6853a689ef2eb0c12a3272476b06a26737e850:SECURITY.md:generic-api-key:43
+
+# Historical: Old version of run-demo.cmd had a placeholder key (00112233...)
+# Current version uses secure random generation via PowerShell
+# This old commit is in history but the vulnerability has been fixed
+e385a844628df95172874516d4945ebe1f693536:installer/run-demo.cmd:generic-api-key:3

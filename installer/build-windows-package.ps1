@@ -14,21 +14,22 @@ Write-Host " HSIP Windows Installer Package Builder" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Get the repository root
-$repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-if (-not $repoRoot) {
-    $repoRoot = Split-Path $PSScriptRoot -Parent
+# Get the repository root (one level up from installer/)
+$repoRoot = Split-Path $PSScriptRoot -Parent
+if (-not (Test-Path (Join-Path $repoRoot "Cargo.toml"))) {
+    Write-Host "ERROR: Cannot find Cargo.toml. Run this script from the installer/ directory." -ForegroundColor Red
+    exit 1
 }
 
-Write-Host "[1/7] Repository root: $repoRoot" -ForegroundColor Yellow
+Write-Host "[1/8] Repository root: $repoRoot" -ForegroundColor Yellow
 Set-Location $repoRoot
 
 # Clean previous build artifacts
-Write-Host "[2/7] Cleaning previous build artifacts..." -ForegroundColor Yellow
+Write-Host "[2/8] Cleaning previous build artifacts..." -ForegroundColor Yellow
 cargo clean
 
 # Build the main CLI executable
-Write-Host "[3/7] Building HSIP CLI (hsip-cli.exe)..." -ForegroundColor Yellow
+Write-Host "[3/8] Building HSIP CLI (hsip-cli.exe)..." -ForegroundColor Yellow
 if ($Release) {
     cargo build --release --bin hsip-cli
     $buildDir = "target\release"
@@ -43,11 +44,11 @@ if (-not (Test-Path "$buildDir\hsip-cli.exe")) {
 }
 
 # Build the tray icon executable
-Write-Host "[4/7] Building HSIP Tray Icon (hsip-tray.exe)..." -ForegroundColor Yellow
+Write-Host "[4/8] Building HSIP Tray Icon (hsip-tray.exe)..." -ForegroundColor Yellow
 if ($Release) {
-    cargo build --release --bin hsip-tray
+    cargo build --release --bin hsip-tray --features tray
 } else {
-    cargo build --bin hsip-tray
+    cargo build --bin hsip-tray --features tray
 }
 
 if (-not (Test-Path "$buildDir\hsip-tray.exe")) {
@@ -55,24 +56,48 @@ if (-not (Test-Path "$buildDir\hsip-tray.exe")) {
     exit 1
 }
 
+# Build the gateway executable
+Write-Host "[5/8] Building HSIP Gateway (hsip-gateway.exe)..." -ForegroundColor Yellow
+if ($Release) {
+    cargo build --release -p hsip-gateway
+} else {
+    cargo build -p hsip-gateway
+}
+
+if (-not (Test-Path "$buildDir\hsip-gateway.exe")) {
+    Write-Host "ERROR: Failed to build hsip-gateway.exe" -ForegroundColor Red
+    exit 1
+}
+
 # Create output directory
-Write-Host "[5/7] Creating installer package directory..." -ForegroundColor Yellow
+Write-Host "[6/8] Creating installer package directory..." -ForegroundColor Yellow
 if (Test-Path $OutputDir) {
     Remove-Item $OutputDir -Recurse -Force
 }
 New-Item -ItemType Directory -Path $OutputDir | Out-Null
 
-# Copy executables
-Write-Host "[6/7] Copying files to installer package..." -ForegroundColor Yellow
+# Copy installer scripts (only if they exist)
+Write-Host "[7/8] Copying files to installer package..." -ForegroundColor Yellow
 Copy-Item "$buildDir\hsip-cli.exe" "$OutputDir\" -Force
 Copy-Item "$buildDir\hsip-tray.exe" "$OutputDir\" -Force
+Copy-Item "$buildDir\hsip-gateway.exe" "$OutputDir\" -Force
 
-# Copy installer scripts
-Copy-Item "installer\register-daemon.ps1" "$OutputDir\" -Force
-Copy-Item "installer\register-tray.ps1" "$OutputDir\" -Force
-Copy-Item "installer\run-daemon.ps1" "$OutputDir\" -Force
-Copy-Item "installer\run-tray.ps1" "$OutputDir\" -Force
-Copy-Item "installer\uninstall.ps1" "$OutputDir\" -Force
+$installerScripts = @(
+    "register-daemon.ps1",
+    "register-tray.ps1",
+    "run-daemon.ps1",
+    "run-tray.ps1",
+    "run-hsip.cmd",
+    "update-hsip.ps1",
+    "README-USER.txt"
+)
+
+foreach ($script in $installerScripts) {
+    $scriptPath = "installer\$script"
+    if (Test-Path $scriptPath) {
+        Copy-Item $scriptPath "$OutputDir\" -Force
+    }
+}
 
 # Copy documentation
 Copy-Item "README.md" "$OutputDir\" -Force -ErrorAction SilentlyContinue
@@ -95,20 +120,25 @@ Extract all files to a permanent location, for example:
 
 **IMPORTANT:** Do NOT run from Downloads or Temp folder!
 
-### 2. Run the Installer (Right-click → Run as Administrator)
+### 2. Register Auto-Start (Run as Administrator)
 Open PowerShell as Administrator and run:
 
 ``````powershell
 cd "C:\Program Files\HSIP"
-.\install.ps1
+.\register-daemon.ps1
+.\register-tray.ps1
+``````
+
+### 3. Start HSIP Now
+``````powershell
+.\run-hsip.cmd
 ``````
 
 This will:
-- ✅ Install HSIP daemon to run on system startup
-- ✅ Install HSIP tray icon to show protection status
-- ✅ Start HSIP immediately
+- Start HSIP daemon (background)
+- Start tray icon (shows protection status)
 
-### 3. Verify Installation
+### 4. Verify Installation
 Look for the system tray icon (bottom-right of screen):
 - 🟢 **GREEN**  = HSIP is running and protecting you
 - 🟡 **YELLOW** = HSIP is blocking threats right now
@@ -137,17 +167,20 @@ Hover over the icon to see detailed status.
 
 ## Uninstallation
 
-To remove HSIP:
+To remove HSIP, run PowerShell as Administrator:
 
 ``````powershell
-cd "C:\Program Files\HSIP"
-.\uninstall.ps1
-``````
+# Stop running processes
+taskkill /IM hsip-cli.exe /F 2>$null
+taskkill /IM hsip-tray.exe /F 2>$null
 
-This will:
-- Remove auto-start tasks
-- Stop the daemon and tray icon
-- You can then delete the folder
+# Remove scheduled tasks
+Unregister-ScheduledTask -TaskName "HSIP Daemon" -Confirm:$false
+Unregister-ScheduledTask -TaskName "HSIP Tray" -Confirm:$false
+
+# Delete the folder
+Remove-Item "C:\Program Files\HSIP" -Recurse -Force
+``````
 
 ## Troubleshooting
 
@@ -299,7 +332,7 @@ pause
 Set-Content -Path "$OutputDir\uninstall.ps1" -Value $uninstaller -Encoding UTF8
 
 # Create ZIP archive
-Write-Host "[7/7] Creating ZIP archive..." -ForegroundColor Yellow
+Write-Host "[8/8] Creating ZIP archive..." -ForegroundColor Yellow
 $zipName = "HSIP-Windows-Installer-$(Get-Date -Format 'yyyy-MM-dd').zip"
 if (Test-Path $zipName) {
     Remove-Item $zipName -Force
@@ -318,7 +351,8 @@ Write-Host "  ✅ Build Complete!" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Package created: $zipName" -ForegroundColor Cyan
-Write-Host "Size: $((Get-Item $zipName).Length / 1MB | ForEach-Object {[math]::Round(`$_, 2)}) MB" -ForegroundColor Cyan
+$sizeMB = [math]::Round((Get-Item $zipName).Length / 1MB, 2)
+Write-Host "Size: $sizeMB MB" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "1. Extract $zipName on target Windows machine" -ForegroundColor White

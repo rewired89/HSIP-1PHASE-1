@@ -1,8 +1,11 @@
 //! HSIP routing logic for intercepted messages.
 
-use crate::{InterceptConfig, Result, InterceptError};
-use hsip_core::identity::PeerID;
+use crate::{InterceptConfig, Result};
+use hsip_core::hello::PeerId;
 use tracing::{info, warn};
+
+/// Type alias for peer identity
+pub type PeerID = PeerId;
 
 /// Routes messages through HSIP protocol.
 pub struct HSIPRouter {

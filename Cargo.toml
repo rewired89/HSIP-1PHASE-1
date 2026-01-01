@@ -8,12 +8,18 @@ members = [
     "crates/hsip-auth",
     "crates/hsip-gateway",
     "crates/hsip-intercept",
-    "crates/hsip-keyboard",
+    # hsip-verify excluded - requires z3-sys which needs Z3 built from source
+    # On Windows, this fails due to heap space issues
+    # Build separately with: cargo build -p hsip-verify
+    "crates/hsip-common",
+    "crates/hsip-regenerative",
+    "crates/hsip-telemetry-guard",
 ]
 
 
 exclude = [
-    "crates/hsip-session/fuzz"
+    "crates/hsip-session/fuzz",
+    "crates/hsip-verify"
 ]
 resolver = "2"
 
