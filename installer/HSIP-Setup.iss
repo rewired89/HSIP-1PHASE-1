@@ -64,6 +64,12 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
       ValueData: "powershell -WindowStyle Hidden -Command ""Start-Process -FilePath '{app}\hsip-cli.exe' -ArgumentList 'daemon' -WindowStyle Hidden"""; \
       Flags: uninsdeletevalue
 
+; Gateway - runs truly hidden via PowerShell
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
+      ValueType: string; ValueName: "HSIP Gateway"; \
+      ValueData: "powershell -WindowStyle Hidden -Command ""Start-Process -FilePath '{app}\hsip-gateway.exe' -WindowStyle Hidden"""; \
+      Flags: uninsdeletevalue
+
 ; Tray icon - shows status
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
       ValueType: string; ValueName: "HSIP Tray"; \
@@ -75,6 +81,11 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
 ; ============================
 
 [Run]
+; Start gateway first (must be running before proxy is configured)
+Filename: "powershell"; \
+      Parameters: "-WindowStyle Hidden -Command ""Start-Process -FilePath '{app}\hsip-gateway.exe' -WindowStyle Hidden"""; \
+      Flags: nowait runhidden shellexec
+
 ; Start daemon truly hidden via PowerShell
 Filename: "powershell"; \
       Parameters: "-WindowStyle Hidden -Command ""Start-Process -FilePath '{app}\hsip-cli.exe' -ArgumentList 'daemon' -WindowStyle Hidden"""; \
@@ -90,9 +101,123 @@ Filename: "{app}\hsip-tray.exe"; \
 ; ============================
 
 [UninstallRun]
+Filename: "taskkill"; Parameters: "/F /IM hsip-gateway.exe"; Flags: runhidden
 Filename: "taskkill"; Parameters: "/F /IM hsip-cli.exe"; Flags: runhidden
 Filename: "taskkill"; Parameters: "/F /IM hsip-tray.exe"; Flags: runhidden
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
 Type: dirifempty; Name: "{userappdata}\.hsip"
+
+; ============================
+; Pascal Script for Proxy Configuration
+; ============================
+
+[Code]
+const
+  INTERNET_SETTINGS = 'Software\Microsoft\Windows\CurrentVersion\Internet Settings';
+  HSIP_BACKUP = 'Software\HSIP\ProxyBackup';
+
+// Save original proxy settings before we modify them
+procedure BackupProxySettings();
+var
+  ProxyEnable: Cardinal;
+  ProxyServer: String;
+begin
+  // Read current proxy settings
+  if RegQueryDWordValue(HKEY_CURRENT_USER, INTERNET_SETTINGS, 'ProxyEnable', ProxyEnable) then
+  begin
+    RegWriteDWordValue(HKEY_CURRENT_USER, HSIP_BACKUP, 'OriginalProxyEnable', ProxyEnable);
+  end
+  else
+  begin
+    // No proxy was enabled, save 0
+    RegWriteDWordValue(HKEY_CURRENT_USER, HSIP_BACKUP, 'OriginalProxyEnable', 0);
+  end;
+
+  if RegQueryStringValue(HKEY_CURRENT_USER, INTERNET_SETTINGS, 'ProxyServer', ProxyServer) then
+  begin
+    RegWriteStringValue(HKEY_CURRENT_USER, HSIP_BACKUP, 'OriginalProxyServer', ProxyServer);
+  end
+  else
+  begin
+    RegWriteStringValue(HKEY_CURRENT_USER, HSIP_BACKUP, 'OriginalProxyServer', '');
+  end;
+
+  // Mark that we have a backup
+  RegWriteDWordValue(HKEY_CURRENT_USER, HSIP_BACKUP, 'BackupExists', 1);
+end;
+
+// Configure system to use HSIP gateway as proxy
+procedure EnableHSIPProxy();
+begin
+  // Set proxy server to HSIP gateway
+  RegWriteStringValue(HKEY_CURRENT_USER, INTERNET_SETTINGS, 'ProxyServer', '127.0.0.1:8080');
+  // Enable proxy
+  RegWriteDWordValue(HKEY_CURRENT_USER, INTERNET_SETTINGS, 'ProxyEnable', 1);
+end;
+
+// Restore original proxy settings
+procedure RestoreProxySettings();
+var
+  BackupExists: Cardinal;
+  OriginalProxyEnable: Cardinal;
+  OriginalProxyServer: String;
+begin
+  // Check if we have a backup
+  if RegQueryDWordValue(HKEY_CURRENT_USER, HSIP_BACKUP, 'BackupExists', BackupExists) then
+  begin
+    if BackupExists = 1 then
+    begin
+      // Restore ProxyEnable
+      if RegQueryDWordValue(HKEY_CURRENT_USER, HSIP_BACKUP, 'OriginalProxyEnable', OriginalProxyEnable) then
+      begin
+        RegWriteDWordValue(HKEY_CURRENT_USER, INTERNET_SETTINGS, 'ProxyEnable', OriginalProxyEnable);
+      end
+      else
+      begin
+        // Default: disable proxy
+        RegWriteDWordValue(HKEY_CURRENT_USER, INTERNET_SETTINGS, 'ProxyEnable', 0);
+      end;
+
+      // Restore ProxyServer
+      if RegQueryStringValue(HKEY_CURRENT_USER, HSIP_BACKUP, 'OriginalProxyServer', OriginalProxyServer) then
+      begin
+        if OriginalProxyServer <> '' then
+          RegWriteStringValue(HKEY_CURRENT_USER, INTERNET_SETTINGS, 'ProxyServer', OriginalProxyServer)
+        else
+          RegDeleteValue(HKEY_CURRENT_USER, INTERNET_SETTINGS, 'ProxyServer');
+      end;
+
+      // Clean up backup
+      RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\HSIP');
+    end;
+  end
+  else
+  begin
+    // No backup found, just disable proxy to be safe
+    RegWriteDWordValue(HKEY_CURRENT_USER, INTERNET_SETTINGS, 'ProxyEnable', 0);
+  end;
+end;
+
+// Called after installation completes
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+  begin
+    // Backup original settings first
+    BackupProxySettings();
+    // Then enable HSIP proxy
+    EnableHSIPProxy();
+  end;
+end;
+
+// Called during uninstall
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    // Restore original proxy settings
+    RestoreProxySettings();
+  end;
+end;
