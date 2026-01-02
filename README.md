@@ -1,102 +1,134 @@
 # HSIP - Hyper-Secure Internet Protocol
 
-**Take back control of your privacy and security online.**
+**Consent-based encrypted communication at the protocol level.**
 
-HSIP is a Windows application that protects you from hackers, trackers, and surveillance. Once installed, it runs silently in the background - no configuration needed.
+HSIP is a cryptographic protocol that requires mutual authentication and explicit consent before any data exchange. Communication only happens when both parties agree - enforced by cryptography, not policy.
 
-**Status:** Ready for Windows 10/11
-
----
-
-## What HSIP Protects You From
-
-### Trackers and Advertisers
-Every website you visit tries to track you. Ad networks like Google, Facebook, and dozens of data brokers follow you across the internet, building profiles about your habits, interests, and behaviors.
-
-**With HSIP:** Trackers are blocked automatically. Your browsing stays private.
-
-### Public WiFi Hackers
-Coffee shops, airports, hotels - public WiFi is a goldmine for hackers. They can intercept your passwords, credit cards, and private messages.
-
-**With HSIP:** All your traffic is encrypted. Hackers see only gibberish.
-
-### Man-in-the-Middle Attacks
-Sophisticated attackers can position themselves between you and websites to steal your data in real-time.
-
-**With HSIP:** Strong encryption (ChaCha20-Poly1305) makes interception useless.
-
-### Data Harvesting
-Companies collect everything: what you search, what you buy, who you talk to, where you go. This data is sold, leaked, or hacked.
-
-**With HSIP:** Your connection is protected at the protocol level. Less data to harvest.
+**Status:** Alpha - Windows 10/11
 
 ---
 
-## How It Works
+## How HSIP Works
 
-1. **Install HSIP** - Run the installer, click Yes
-2. **Done** - HSIP runs automatically in the background
+### 1. Cryptographic Identity
+Every peer has an Ed25519 keypair. Your public key is your identity - no registration, no central authority, no phone numbers or emails required.
 
-Look for the colored square in your system tray (bottom-right):
-- **Green** = Protected
-- **Yellow** = Actively blocking threats
-- **Red** = Offline or error
+### 2. Signed Handshake
+Before any communication, peers exchange signed HELLO messages:
+```
+[HELLO] version=1, capabilities=0x1F, peer_id=ABCD..., timestamp=...
+[SIGNATURE] Ed25519(HELLO_bytes)
+```
+Invalid signatures are rejected immediately. No connection without proof of identity.
+
+### 3. Ephemeral Key Exchange
+After HELLO verification, peers perform X25519 Diffie-Hellman using fresh ephemeral keys. This provides **perfect forward secrecy** - compromising long-term keys doesn't expose past sessions.
+
+### 4. Encrypted Sessions
+All traffic uses ChaCha20-Poly1305 authenticated encryption:
+- Counter-based nonces prevent replay attacks
+- Sessions automatically rekey after 100,000 packets or 1 hour
+- Tampering is detected and rejected
+
+### 5. Consent Tokens
+To communicate, you need a capability token from the recipient:
+```json
+{
+  "purpose": "file-transfer",
+  "expires_ms": 3600000,
+  "permissions": ["read", "write"]
+}
+```
+Tokens are cryptographically signed, time-bounded, and permission-scoped. **No token = no connection.**
+
+---
+
+## What This Means For You
+
+| Threat | How HSIP Protects |
+|--------|-------------------|
+| **Man-in-the-middle** | Signed handshakes verify identity. Attackers can't impersonate. |
+| **Eavesdropping** | ChaCha20-Poly1305 encryption. Traffic is unreadable. |
+| **Replay attacks** | Nonce management rejects duplicate packets. |
+| **Session hijacking** | Ephemeral keys. Each session has unique secrets. |
+| **Unauthorized contact** | Consent tokens required. No spam, no unwanted connections. |
+| **Key compromise** | Perfect forward secrecy. Past sessions stay protected. |
 
 ---
 
 ## Installation
 
-### Download
-Get `HSIP-Setup.exe` from the Releases page.
+### Windows
+1. Download `HSIP-Setup.exe` from Releases
+2. Run installer, click Yes
+3. Done - HSIP runs in background
 
-### Install
-1. Double-click `HSIP-Setup.exe`
-2. Click Yes when Windows asks for permission
-3. Done - you're protected
+System tray icon shows status:
+- **Green** = Protected
+- **Yellow** = Active (blocking/encrypting)
+- **Red** = Offline
 
 ### Uninstall
-Go to Windows Settings > Apps > HSIP > Uninstall
+Windows Settings > Apps > HSIP > Uninstall
 
-Your internet settings are automatically restored to what they were before.
-
----
-
-## Technical Details
-
-HSIP uses proven cryptographic standards:
-
-| Component | Technology |
-|-----------|------------|
-| Identity | Ed25519 signatures |
-| Key Exchange | X25519 |
-| Encryption | ChaCha20-Poly1305 |
-| Consent | Capability tokens with expiration |
-
-For developers and technical users, see:
-- [API Reference](docs/API_REFERENCE.md)
-- [Protocol Specification](docs/PROTOCOL_SPEC.md)
-- [Examples](docs/EXAMPLES.md)
+All settings restored automatically.
 
 ---
 
 ## Architecture
 
 ```
-hsip-cli.exe      Background daemon with HTTP API (port 8787)
-hsip-gateway.exe  HTTP/HTTPS proxy with tracker blocking (port 8080)
-hsip-tray.exe     System tray icon showing protection status
+┌─────────────────────────────────────────────────────────┐
+│                      HSIP Stack                         │
+├─────────────────────────────────────────────────────────┤
+│  hsip-cli.exe     Daemon with HTTP API (port 8787)      │
+│                   - Session management                  │
+│                   - Consent token handling              │
+│                   - Status reporting                    │
+├─────────────────────────────────────────────────────────┤
+│  hsip-gateway.exe HTTP/HTTPS proxy (port 8080)          │
+│                   - Traffic interception                │
+│                   - Tracker blocking                    │
+│                   - Encrypted tunneling                 │
+├─────────────────────────────────────────────────────────┤
+│  hsip-tray.exe    System tray indicator                 │
+│                   - Visual status                       │
+│                   - Quick actions                       │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Verify Protection
+## Protocol Stack
 
-Check if HSIP is running:
+| Layer | Technology | Purpose |
+|-------|------------|---------|
+| Identity | Ed25519 | Signatures, authentication |
+| Key Exchange | X25519 | Ephemeral Diffie-Hellman |
+| Encryption | ChaCha20-Poly1305 | AEAD, authenticated encryption |
+| Key Derivation | HKDF-SHA256 | Session keys from shared secret |
+| Hashing | BLAKE3 | PeerID derivation |
+
+---
+
+## Test the Protocol
+
+### Start a listener:
+```bash
+hsip-cli session-listen --addr 127.0.0.1:9002
 ```
+
+### Send encrypted packets:
+```bash
+hsip-cli session-send --to 127.0.0.1:9002 --packets 5
+```
+
+### Check daemon status:
+```bash
 curl http://127.0.0.1:8787/status
 ```
 
-Expected response:
+Response:
 ```json
 {
   "protected": true,
@@ -107,11 +139,24 @@ Expected response:
 
 ---
 
+## Documentation
+
+- [Protocol Specification](docs/PROTOCOL_SPEC.md) - Wire format, handshake, sessions
+- [API Reference](docs/API_REFERENCE.md) - CLI commands, HTTP endpoints
+- [Examples](docs/EXAMPLES.md) - Common use cases
+
+---
+
 ## Security
 
-HSIP is currently in alpha. While the cryptography is solid, the software is still maturing.
+HSIP uses audited cryptographic libraries:
+- `ed25519-dalek` - Signatures
+- `x25519-dalek` - Key exchange
+- `chacha20poly1305` - AEAD encryption (RustCrypto)
 
-**Report vulnerabilities privately to:** nyxsystemsllc@gmail.com
+The protocol is in alpha. Independent security audit planned.
+
+**Report vulnerabilities:** nyxsystemsllc@gmail.com
 
 ---
 
@@ -119,17 +164,20 @@ HSIP is currently in alpha. While the cryptography is solid, the software is sti
 
 **HSIP Community License (Non-Commercial)**
 
-- **Free** for personal use, education, research, and open-source projects
-- **Commercial use requires a license** from Nyx Systems LLC
+**Free** for:
+- Personal use
+- Education and research
+- Open-source projects
 
-### What counts as commercial use?
-- Selling software that includes HSIP
-- Using HSIP in a business
+**Commercial use requires a license** from Nyx Systems LLC.
+
+This includes:
+- Selling software containing HSIP
+- Using HSIP in business operations
 - Integrating HSIP into commercial products
-- Offering HSIP as part of a paid service
+- Offering HSIP as part of paid services
 
-### Want to use HSIP commercially?
-Contact: **nyxsystemsllc@gmail.com**
+**Contact:** nyxsystemsllc@gmail.com
 
 See [LICENSE](LICENSE) for full terms.
 
@@ -137,13 +185,13 @@ See [LICENSE](LICENSE) for full terms.
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING](docs/CONTRIBUTING.md) for guidelines.
+Contributions welcome. See [CONTRIBUTING](docs/CONTRIBUTING.md).
 
 ---
 
 ## Contact
 
-- **Issues:** https://github.com/rewired89/HSIP/issues
+- **GitHub Issues:** https://github.com/rewired89/HSIP/issues
 - **Email:** nyxsystemsllc@gmail.com
 
 ---
