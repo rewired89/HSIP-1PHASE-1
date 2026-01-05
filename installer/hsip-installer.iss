@@ -55,11 +55,9 @@ Source: "run-tray.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Documentation
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
-Source: "..\ENCRYPTION_VERIFICATION_REPORT.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\HOW_TO_VERIFY_ENCRYPTION.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\SECURITY_HARDENING_STRATEGY.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "RELEASE_NOTES_v0.2.1.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "BUILD_INSTRUCTIONS.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\BUILD_INSTALLER.md"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Security Test Scripts (for advanced users)
 Source: "..\security_tests\*.py"; DestDir: "{app}\security_tests"; Flags: ignoreversion
@@ -69,8 +67,8 @@ Source: "..\security_tests\*.md"; DestDir: "{app}\security_tests"; Flags: ignore
 [Icons]
 Name: "{group}\HSIP Status"; Filename: "{app}\{#MyAppTrayName}"
 Name: "{group}\HSIP Documentation"; Filename: "{app}\README.md"
-Name: "{group}\Verify Encryption"; Filename: "{app}\HOW_TO_VERIFY_ENCRYPTION.md"
 Name: "{group}\Security Information"; Filename: "{app}\SECURITY_HARDENING_STRATEGY.md"
+Name: "{group}\Release Notes"; Filename: "{app}\RELEASE_NOTES_v0.2.1.md"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 
 [Run]
