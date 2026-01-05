@@ -116,10 +116,12 @@ function Test-Endpoint {
     try {
         # Make request
         if ($UseProxy) {
-            $response = curl.exe -s -x http://localhost:8080 $url
+            $webResponse = Invoke-WebRequest -Uri $url -Proxy "http://localhost:8080" -UseBasicParsing -ErrorAction Stop
         } else {
-            $response = curl.exe -s $url
+            $webResponse = Invoke-WebRequest -Uri $url -UseBasicParsing -ErrorAction Stop
         }
+
+        $response = $webResponse.Content
 
         # Show raw response
         Write-Host "Raw Response:"
