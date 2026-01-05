@@ -68,7 +68,9 @@ try {
     $response = Invoke-WebRequest -Uri "http://127.0.0.1:8787/status" -Method DELETE -UseBasicParsing
     $testResults += "[WARN] DELETE succeeded: Status $($response.StatusCode)"
 } catch {
-    $testResults += "[PASS] DELETE blocked: $($_.Exception.Message.Substring(0,50))..."
+    $msg = $_.Exception.Message
+    $preview = if ($msg.Length -gt 50) { $msg.Substring(0,50) + "..." } else { $msg }
+    $testResults += "[PASS] DELETE blocked: $preview"
 }
 
 try {
@@ -76,7 +78,9 @@ try {
     $response = Invoke-WebRequest -Uri "http://127.0.0.1:8787/../../../etc/passwd" -UseBasicParsing
     $testResults += "[WARN] Path traversal succeeded: Status $($response.StatusCode)"
 } catch {
-    $testResults += "[PASS] Path traversal blocked: $($_.Exception.Message.Substring(0,50))..."
+    $msg = $_.Exception.Message
+    $preview = if ($msg.Length -gt 50) { $msg.Substring(0,50) + "..." } else { $msg }
+    $testResults += "[PASS] Path traversal blocked: $preview"
 }
 
 try {
@@ -124,7 +128,9 @@ try {
     $response = Invoke-WebRequest -Uri "http://127.0.0.1:8787/status" -Method POST -Body $largeData -UseBasicParsing -TimeoutSec 10
     Write-Host "[WARN] Large payload accepted: Status $($response.StatusCode)" -ForegroundColor Yellow
 } catch {
-    Write-Host "[PASS] Large payload rejected: $($_.Exception.Message.Substring(0,80))..." -ForegroundColor Green
+    $msg = $_.Exception.Message
+    $preview = if ($msg.Length -gt 80) { $msg.Substring(0,80) + "..." } else { $msg }
+    Write-Host "[PASS] Large payload rejected: $preview" -ForegroundColor Green
 }
 
 Write-Host ""
