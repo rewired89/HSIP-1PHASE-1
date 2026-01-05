@@ -41,7 +41,7 @@ if (-not $SkipBuild) {
     }
 
     Write-Host "  Building hsip-tray.exe..." -ForegroundColor Gray
-    cargo build --release --bin hsip-tray
+    cargo build --release --bin hsip-tray --features="tray"
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERROR: Failed to build hsip-tray.exe" -ForegroundColor Red
         exit 1
