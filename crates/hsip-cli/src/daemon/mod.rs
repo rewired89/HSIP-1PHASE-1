@@ -108,6 +108,43 @@ pub mod http {
     };
     use std::net::SocketAddr;
     use tokio::net::TcpListener;
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    use hex;
+
+    type HmacSha256 = Hmac<Sha256>;
+
+    /// HMAC key for response integrity (should be loaded from secure storage in production)
+    const RESPONSE_HMAC_KEY: &[u8] = b"HSIP-DAEMON-RESPONSE-INTEGRITY-KEY-V1-CHANGE-IN-PRODUCTION";
+
+    /// Signed response wrapper with HMAC for integrity
+    #[derive(Serialize)]
+    struct SignedResponse<T: Serialize> {
+        data: T,
+        signature: String,
+        #[serde(rename = "sig_alg")]
+        signature_algorithm: String,
+    }
+
+    /// Generate HMAC-SHA256 signature for response data
+    fn sign_response<T: Serialize>(data: &T) -> Result<String, String> {
+        let json_bytes = serde_json::to_vec(data).map_err(|e| e.to_string())?;
+        let mut mac = HmacSha256::new_from_slice(RESPONSE_HMAC_KEY)
+            .map_err(|e| e.to_string())?;
+        mac.update(&json_bytes);
+        let signature = mac.finalize().into_bytes();
+        Ok(hex::encode(signature))
+    }
+
+    /// Create a signed response with HMAC integrity protection
+    fn create_signed_response<T: Serialize>(data: T) -> Result<impl IntoResponse, axum::http::StatusCode> {
+        let signature = sign_response(&data).map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok(Json(SignedResponse {
+            data,
+            signature,
+            signature_algorithm: "HMAC-SHA256".to_string(),
+        }))
+    }
 
     #[derive(Debug, Deserialize)]
     struct GrantRequest {
@@ -165,7 +202,9 @@ pub mod http {
 
     async fn get_status(State(state): State<AppState>) -> impl IntoResponse {
         let s = state.inner.lock().unwrap().clone();
-        Json(s)
+        create_signed_response(s).unwrap_or_else(|code| {
+            (code, Json(serde_json::json!({"error": "signature_failed"}))).into_response()
+        })
     }
 
     async fn get_sessions() -> impl IntoResponse {
@@ -176,37 +215,46 @@ pub mod http {
             bytes_out: 22222,
             cipher: "ChaCha20-Poly1305".into(),
         }];
-        Json(sessions)
+        create_signed_response(sessions).unwrap_or_else(|code| {
+            (code, Json(serde_json::json!({"error": "signature_failed"}))).into_response()
+        })
     }
 
     async fn post_consent_grant(
         Json(req): Json<GrantRequest>,
-    ) -> Result<Json<GrantResponse>, axum::http::StatusCode> {
+    ) -> impl IntoResponse {
         // TODO: call your real token issuer; stubbed token:
         let token = format!(
             "cap::{}/{}::{}",
             req.grantee_pubkey_hex, req.purpose, req.expires_ms
         );
-        Ok(Json(GrantResponse { token }))
+        let response = GrantResponse { token };
+        create_signed_response(response).unwrap_or_else(|code| {
+            (code, Json(serde_json::json!({"error": "signature_failed"}))).into_response()
+        })
     }
 
     async fn post_consent_revoke(
         Json(req): Json<RevokeRequest>,
-    ) -> Result<Json<serde_json::Value>, axum::http::StatusCode> {
+    ) -> impl IntoResponse {
         // TODO: kill session(s) by req.peer_id via your session manager
-        Ok(Json(
-            serde_json::json!({"ok": true, "revoked_for": req.peer_id}),
-        ))
+        let response = serde_json::json!({"ok": true, "revoked_for": req.peer_id});
+        create_signed_response(response).unwrap_or_else(|code| {
+            (code, Json(serde_json::json!({"error": "signature_failed"}))).into_response()
+        })
     }
 
     async fn get_reputation(
         Path(peer_id): Path<String>,
-    ) -> Result<Json<ReputationResponse>, axum::http::StatusCode> {
+    ) -> impl IntoResponse {
         // TODO: query real reputation
-        Ok(Json(ReputationResponse {
+        let response = ReputationResponse {
             peer_id,
             score: 0,
             last_seen: chrono::Utc::now().to_rfc3339(),
-        }))
+        };
+        create_signed_response(response).unwrap_or_else(|code| {
+            (code, Json(serde_json::json!({"error": "signature_failed"}))).into_response()
+        })
     }
 }
