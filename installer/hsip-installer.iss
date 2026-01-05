@@ -3,7 +3,7 @@
 ; Build with Inno Setup Compiler 6.0+
 
 #define MyAppName "HSIP"
-#define MyAppVersion "0.2.0"
+#define MyAppVersion "0.2.1-security"
 #define MyAppPublisher "Nyx Systems LLC"
 #define MyAppURL "https://hsip.io"
 #define MyAppExeName "hsip-cli.exe"
@@ -57,12 +57,20 @@ Source: "run-tray.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
 Source: "..\ENCRYPTION_VERIFICATION_REPORT.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\HOW_TO_VERIFY_ENCRYPTION.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\SECURITY_HARDENING_STRATEGY.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "RELEASE_NOTES_v0.2.1.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "BUILD_INSTRUCTIONS.md"; DestDir: "{app}"; Flags: ignoreversion
+
+; Security Test Scripts (for advanced users)
+Source: "..\security_tests\*.py"; DestDir: "{app}\security_tests"; Flags: ignoreversion
+Source: "..\security_tests\*.ps1"; DestDir: "{app}\security_tests"; Flags: ignoreversion
+Source: "..\security_tests\*.md"; DestDir: "{app}\security_tests"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\HSIP Status"; Filename: "{app}\{#MyAppTrayName}"
 Name: "{group}\HSIP Documentation"; Filename: "{app}\README.md"
 Name: "{group}\Verify Encryption"; Filename: "{app}\HOW_TO_VERIFY_ENCRYPTION.md"
+Name: "{group}\Security Information"; Filename: "{app}\SECURITY_HARDENING_STRATEGY.md"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 
 [Run]
@@ -90,8 +98,10 @@ begin
   WelcomeLabel.Parent := WizardForm.WelcomePage;
   WelcomeLabel.Caption :=
     'This wizard will install HSIP - High-Speed Internet Protection.' + #13#10 + #13#10 +
-    'HSIP provides:' + #13#10 +
+    'HSIP v0.2.1-security provides:' + #13#10 +
     '  • ChaCha20-Poly1305 encryption (same as Signal)' + #13#10 +
+    '  • HMAC-SHA256 response integrity protection' + #13#10 +
+    '  • OWASP Top 10 security hardening' + #13#10 +
     '  • Visual status with colored tray icons' + #13#10 +
     '  • Automatic threat blocking' + #13#10 +
     '  • Independent verification (IETF RFC 8439)' + #13#10 + #13#10 +
