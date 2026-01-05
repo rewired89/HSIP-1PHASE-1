@@ -32,9 +32,9 @@ PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
-; Visual customization
-WizardImageFile=compiler:WizModernImage-IS.bmp
-WizardSmallImageFile=compiler:WizModernSmallImage-IS.bmp
+; Visual customization (optional - commented out if images not found)
+; WizardImageFile=compiler:WizModernImage-IS.bmp
+; WizardSmallImageFile=compiler:WizModernSmallImage-IS.bmp
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
