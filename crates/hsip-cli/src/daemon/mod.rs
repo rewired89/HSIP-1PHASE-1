@@ -137,13 +137,20 @@ pub mod http {
     }
 
     /// Create a signed response with HMAC integrity protection
-    fn create_signed_response<T: Serialize>(data: T) -> Result<impl IntoResponse, axum::http::StatusCode> {
-        let signature = sign_response(&data).map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-        Ok(Json(SignedResponse {
-            data,
-            signature,
-            signature_algorithm: "HMAC-SHA256".to_string(),
-        }))
+    fn create_signed_response<T: Serialize>(data: T) -> axum::response::Response {
+        match sign_response(&data) {
+            Ok(signature) => {
+                Json(SignedResponse {
+                    data,
+                    signature,
+                    signature_algorithm: "HMAC-SHA256".to_string(),
+                }).into_response()
+            }
+            Err(_) => {
+                (axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                 Json(serde_json::json!({"error": "signature_failed"}))).into_response()
+            }
+        }
     }
 
     #[derive(Debug, Deserialize)]
@@ -202,9 +209,7 @@ pub mod http {
 
     async fn get_status(State(state): State<AppState>) -> impl IntoResponse {
         let s = state.inner.lock().unwrap().clone();
-        create_signed_response(s).unwrap_or_else(|code| {
-            (code, Json(serde_json::json!({"error": "signature_failed"}))).into_response()
-        })
+        create_signed_response(s)
     }
 
     async fn get_sessions() -> impl IntoResponse {
@@ -215,9 +220,7 @@ pub mod http {
             bytes_out: 22222,
             cipher: "ChaCha20-Poly1305".into(),
         }];
-        create_signed_response(sessions).unwrap_or_else(|code| {
-            (code, Json(serde_json::json!({"error": "signature_failed"}))).into_response()
-        })
+        create_signed_response(sessions)
     }
 
     async fn post_consent_grant(
@@ -229,9 +232,7 @@ pub mod http {
             req.grantee_pubkey_hex, req.purpose, req.expires_ms
         );
         let response = GrantResponse { token };
-        create_signed_response(response).unwrap_or_else(|code| {
-            (code, Json(serde_json::json!({"error": "signature_failed"}))).into_response()
-        })
+        create_signed_response(response)
     }
 
     async fn post_consent_revoke(
@@ -239,9 +240,7 @@ pub mod http {
     ) -> impl IntoResponse {
         // TODO: kill session(s) by req.peer_id via your session manager
         let response = serde_json::json!({"ok": true, "revoked_for": req.peer_id});
-        create_signed_response(response).unwrap_or_else(|code| {
-            (code, Json(serde_json::json!({"error": "signature_failed"}))).into_response()
-        })
+        create_signed_response(response)
     }
 
     async fn get_reputation(
@@ -253,8 +252,6 @@ pub mod http {
             score: 0,
             last_seen: chrono::Utc::now().to_rfc3339(),
         };
-        create_signed_response(response).unwrap_or_else(|code| {
-            (code, Json(serde_json::json!({"error": "signature_failed"}))).into_response()
-        })
+        create_signed_response(response)
     }
 }

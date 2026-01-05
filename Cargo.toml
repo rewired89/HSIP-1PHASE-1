@@ -7,7 +7,9 @@ members = [
     "crates/hsip-cli",
     "crates/hsip-auth",
     "crates/hsip-gateway",
-    "crates/hsip-intercept",
+    # hsip-intercept excluded - Windows/Android only, will fail on Linux
+    # Build separately on Windows with: cargo build -p hsip-intercept
+    # "crates/hsip-intercept",
     # hsip-verify excluded - requires z3-sys which needs Z3 built from source
     # On Windows, this fails due to heap space issues
     # Build separately with: cargo build -p hsip-verify
@@ -19,7 +21,8 @@ members = [
 
 exclude = [
     "crates/hsip-session/fuzz",
-    "crates/hsip-verify"
+    "crates/hsip-verify",
+    "crates/hsip-intercept"
 ]
 resolver = "2"
 
