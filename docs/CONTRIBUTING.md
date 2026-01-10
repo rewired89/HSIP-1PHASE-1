@@ -172,7 +172,7 @@ Just make sure:
     You're not generating revenue from it
     You're not providing it as a paid service
 
-Want to feature your project? Email us at nyxsystemsllc@gmail.com - we love showcasing community work!
+Want to feature your project? Email us at contact@hsip.io - we love showcasing community work!
 Getting Help
 
 For development questions:
@@ -183,13 +183,13 @@ For development questions:
 
 For licensing questions:
 
-    Email: nyxsystemsllc@gmail.com
+    Email: contact@hsip.io
     Include your use case and whether it's commercial
 
 For security vulnerabilities:
 
     Do NOT open public issues
-    Email: nyxsystemsllc@gmail.com with subject "HSIP Security"
+    Email: contact@hsip.io with subject "HSIP Security"
     I'll respond within 48 hours
 
 Development Setup
@@ -249,8 +249,8 @@ Contact
 
     General questions: Open a GitHub Discussion
     Bug reports: GitHub Issues
-    Licensing: nyxsystemsllc@gmail.com
-    Security: nyxsystemsllc@gmail.com (subject: "HSIP Security")
-    Enterprise: nyxsystemsllc@gmail.com (subject: "HSIP Enterprise License")
+    Licensing: contact@hsip.io
+    Security: security@hsip.io
+    Enterprise: licensing@hsip.io
 
 Thank you for helping make the internet more private and secure!🔒

@@ -1,29 +1,123 @@
-HSIP COMMUNITY LICENSE (Non-Commercial Use Only)
-Version 1.0 – November 2025
+# HSIP Commons License
+## Free for Non-Commercial Use
 
-Copyright (c) Nyx Systems LLC.
+**Version 1.1 – January 2026**
+
+Copyright © 2024-2026 Nyx Systems LLC.
 All rights reserved.
 
-Permission is hereby granted to any individual or organization to use,
-modify, and distribute this software for personal, educational,
-research, or non-commercial purposes only.
+---
 
-Commercial Use is strictly prohibited without a separate written
-Enterprise License agreement from Nyx Systems LLC.
+## Grant of Rights
 
-“Commercial Use” includes, but is not limited to:
-- Selling the software, services, or products that include it
-- Using the software within a business or government workflow
-- Integrating the software into commercial applications
-- Hosting the software as part of a paid service
-- Using the software to provide cybersecurity, networking, or data-related services
+Permission is hereby granted, free of charge, to any person or organization obtaining a copy of this software and associated documentation files (the "Software"), to use, copy, modify, and distribute the Software for **non-commercial purposes only**, subject to the following conditions:
 
-No trademark rights are granted for “HSIP”, “Nyx Systems”, or any
-associated branding.
+### What You Can Do (Free)
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
-Nyx Systems LLC SHALL NOT BE LIABLE FOR ANY DAMAGES OR LIABILITY
-ARISING FROM THE USE OF THIS SOFTWARE.
+✅ **Personal Use** - Use HSIP for your own private communication
+✅ **Educational Use** - Teach, learn, and research with HSIP
+✅ **Academic Research** - Study consent-based protocols and cryptography
+✅ **Open-Source Projects** - Build free software using HSIP
+✅ **Non-Profit Organizations** - Use HSIP for charitable and non-profit activities
+✅ **Hobbyist Projects** - Experiment, prototype, and tinker
 
-For Commercial Use, contact:
-nyxsystemsllc@gmail.com
+### What Requires a Commercial License
+
+The following uses require a separate written agreement with Nyx Systems LLC:
+
+❌ **Commercial Products** - Selling software or services that include HSIP
+❌ **Business Operations** - Using HSIP in for-profit business workflows
+❌ **Paid Services** - Offering HSIP-based services for a fee
+❌ **Government Use** - Integration into government systems or infrastructure
+❌ **Consulting & Professional Services** - Deploying HSIP for clients commercially
+
+---
+
+## Why Dual Licensing?
+
+HSIP is designed as **commons infrastructure** - freely accessible to individuals, researchers, educators, and non-profits. This ensures privacy technology remains a public good.
+
+Commercial licensing supports:
+- Ongoing development and maintenance
+- Independent security audits
+- Platform ports (Linux, macOS, mobile)
+- Community documentation and support
+- Interoperability standards work
+
+By keeping HSIP free for non-commercial use while licensing commercial use, we can sustain the project without paywalls or subscription fees for individuals.
+
+---
+
+## Commercial Licensing
+
+If your use case requires a commercial license, contact us:
+
+**Email**: licensing@hsip.io
+**Web**: https://hsip.io/licensing
+
+We offer:
+- **Startup licenses** - Discounted rates for early-stage companies
+- **Enterprise licenses** - Volume pricing for large deployments
+- **OEM licenses** - Integration into commercial products
+- **Consulting services** - Implementation support and custom features
+
+Licensing fees directly fund HSIP development and ensure sustainability.
+
+---
+
+## Trademark Policy
+
+"HSIP", "Hyper-Secure Internet Protocol", and associated logos are trademarks of Nyx Systems LLC.
+
+You may:
+- ✅ Refer to "HSIP" when describing the protocol or software
+- ✅ State that your project "uses HSIP" or "is compatible with HSIP"
+
+You may not:
+- ❌ Use "HSIP" in product names without permission
+- ❌ Imply official endorsement or affiliation without authorization
+- ❌ Register "HSIP" as a trademark or domain name
+
+For trademark usage permissions, contact: trademark@hsip.io
+
+---
+
+## Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+IN NO EVENT SHALL NYX SYSTEMS LLC OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+
+## Security & Vulnerability Disclosure
+
+HSIP is security-critical software. If you discover a vulnerability:
+
+1. **Do not** disclose publicly
+2. Email: security@hsip.io with details
+3. We will respond within 48 hours
+4. Coordinated disclosure after patch release
+
+Security researchers are credited in our hall of fame.
+
+---
+
+## Contributions
+
+By contributing code, documentation, or other materials to HSIP, you agree to license your contributions under the same terms as this license.
+
+See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for contribution guidelines.
+
+---
+
+## Questions?
+
+**Licensing**: licensing@hsip.io
+**General**: contact@hsip.io
+**Security**: security@hsip.io
+**GitHub**: https://github.com/nyxsystems/HSIP-1PHASE-1/issues
+
+---
+
+**HSIP is commons infrastructure - free for the many, funded by the few.**

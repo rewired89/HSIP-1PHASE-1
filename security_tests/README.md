@@ -243,8 +243,8 @@ If tests fail or you find vulnerabilities:
 
 1. **Save test results**: All output is in `security_tests/results/`
 2. **Document the issue**: Attack vector, repro steps, severity
-3. **Contact**: nyxsystemsllc@gmail.com
-4. **Do NOT disclose publicly** until patched
+3. **Report privately**: security@hsip.io
+4. **Do NOT disclose publicly** until patched (responsible disclosure)
 
 ## References
 

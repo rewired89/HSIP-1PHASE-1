@@ -10,7 +10,7 @@
 
 If you discover a security vulnerability in HSIP, please report it responsibly:
 
-**Email:** nyxsystemsllc@gmail.com
+**Email:** security@hsip.io
 
 ### What to Include
 
