@@ -322,8 +322,7 @@ See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
 ## Getting Help
 
 - **GitHub Issues**: https://github.com/nyxsystems/HSIP-1PHASE-1/issues
-- **Community Forum**: Coming soon
-- **Email**: contact@hsip.io
+- **Email**: nyxsystemsllc@gmail.com
 
 ---
 
