@@ -203,55 +203,6 @@ This is infrastructure for a **consent-based internet** - where privacy and auto
 
 ---
 
-## NGI Zero Alignment
-
-HSIP directly addresses NGI Zero Commons Fund priorities:
-
-### 1. **Privacy & Trust**
-- End-to-end encryption with perfect forward secrecy
-- No metadata harvesting by design
-- Consent tokens cryptographically enforced
-
-### 2. **User Autonomy**
-- Self-sovereign identity (Ed25519 keypairs)
-- No registration, no phone numbers, no personal data
-- Users control their consent and permissions
-
-### 3. **Open Standards**
-- Fully documented protocol specification
-- Open-source implementation
-- Interoperability designed from day one
-
-### 4. **Sustainability**
-- Free for non-commercial use (personal, educational, non-profit)
-- Commercial licensing funds development
-- Community-driven governance
-
-### 5. **Accessibility**
-- Simple installation (one-click on Windows)
-- Clear documentation for non-technical users
-- No configuration complexity
-
----
-
-## What Success Looks Like
-
-**Short-term (6-12 months with NGI support):**
-- Independent security audit
-- Linux and macOS ports
-- Mobile platform support (Android/iOS)
-- Expanded documentation and examples
-- Community growth and contributor onboarding
-
-**Long-term (2-5 years):**
-- HSIP as standard protocol for privacy-preserving apps
-- Ecosystem of consent-based applications
-- Adoption by privacy-focused communities
-- IETF standardization track
-- Integration into major open-source projects
-
----
-
 ## Why Now?
 
 1. **Surveillance capitalism is entrenched** - GDPR and data protection laws aren't enough
