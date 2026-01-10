@@ -189,7 +189,7 @@ HSIP uses industry-standard, audited implementations:
 - ⏳ Independent security audit planned (NGI support pending)
 
 ### Vulnerability Reporting
-Found a security issue? Report privately to: **security@hsip.io**
+Found a security issue? Report privately to: **nyxsystemsllc@gmail.com**
 
 We follow responsible disclosure. Security researchers are credited in our hall of fame.
 
@@ -206,7 +206,7 @@ HSIP is **free** for:
 - ✅ Non-profit organizations
 
 ### Commercial Use
-Organizations using HSIP for commercial purposes require a license. Contact: **licensing@hsip.io**
+Organizations using HSIP for commercial purposes require a license. Contact: **nyxsystemsllc@gmail.com**
 
 This ensures sustainable development while keeping HSIP accessible as a **public commons**.
 
@@ -267,8 +267,8 @@ This project is committed to remaining **open and accessible as commons infrastr
 ## Contact
 
 - **GitHub Issues:** https://github.com/nyxsystems/HSIP-1PHASE-1/issues
-- **Security:** security@hsip.io
-- **General:** contact@hsip.io
+- **Security:** nyxsystemsllc@gmail.com
+- **General:** nyxsystemsllc@gmail.com
 
 ---
 
